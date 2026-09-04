@@ -20,25 +20,52 @@ from urllib3.util.retry import Retry
 logger = logging.getLogger("crunchyroll.session_pool")
 
 
+class RateLimitGate:
+    """Thread-safe circuit breaker / rate-limit gate to pause requests across all threads."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._paused_until = 0.0
+
+    @property
+    def is_paused(self) -> bool:
+        with self._lock:
+            return time.monotonic() < self._paused_until
+
+    def trigger_pause(self, wait_seconds: float) -> None:
+        with self._lock:
+            target = time.monotonic() + max(0.0, float(wait_seconds))
+            if target > self._paused_until:
+                self._paused_until = target
+
+    def wait_if_paused(self) -> None:
+        while True:
+            with self._lock:
+                remaining = self._paused_until - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(remaining, 0.2))
+
+
 @dataclass
 class ConcurrencyConfig:
     """Configuration for concurrency, scaling, connection pool, and hedging."""
-    min_workers: int = 6
-    max_workers: int = 16
-    initial_workers: int = 12
+    min_workers: int = 4
+    max_workers: int = 8
+    initial_workers: int = 6
     aimd_enabled: bool = True
     hedging_enabled: bool = False  # disabled: hedge timeout math kills downloads on slow CDN segments
     hedge_factor: float = 2.0  # multiplier of median latency to trigger hedge
     hedge_min_delay: float = 1.5  # minimum delay in seconds before hedging
     max_retries: int = 5
     backoff_factor: float = 0.5
-    pool_size: int = 32
+    pool_size: int = 16
     timeout: int = 10
     chunk_size: int = 524288  # 512 KB read buffer
 
 
 class TCPKeepAliveAdapter(HTTPAdapter):
-    """Custom HTTPAdapter configuring TCP Keep-Alive, TCP_NODELAY, and 1MB socket buffers."""
+    """Custom HTTPAdapter configuring TCP Keep-Alive and TCP_NODELAY."""
 
     def init_poolmanager(self, *args, **kwargs):
         socket_options = list(HTTPConnection.default_socket_options)
@@ -50,8 +77,7 @@ class TCPKeepAliveAdapter(HTTPAdapter):
             socket_options.append((socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 15))
         if hasattr(socket, "IPPROTO_TCP") and hasattr(socket, "TCP_KEEPINTVL"):
             socket_options.append((socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 5))
-        if hasattr(socket, "SOL_SOCKET") and hasattr(socket, "SO_RCVBUF"):
-            socket_options.append((socket.SOL_SOCKET, socket.SO_RCVBUF, 1048576))
+        # Note: Do not set SO_RCVBUF on Windows as it disables Windows TCP Receive Window Auto-Tuning.
         kwargs["socket_options"] = socket_options
         super().init_poolmanager(*args, **kwargs)
 
@@ -131,8 +157,12 @@ class AIMDConcurrencyScaler:
         with self._lock:
             self._total_failures += 1
             self._window_errors += 1
-            # Multiplicative Decrease immediately on error / rate-limiting
-            self._current_workers = max(self.min_workers, int(self._current_workers * 0.75))
+            # Rate limit (429 or 420) immediately drops to min_workers
+            if status_code in (420, 429):
+                self._current_workers = self.min_workers
+            else:
+                # Multiplicative Decrease immediately on error / rate-limiting
+                self._current_workers = max(self.min_workers, int(self._current_workers * 0.75))
             return self._current_workers
 
     def get_median_latency(self) -> float:
@@ -181,11 +211,12 @@ class SessionPool:
 
     def __init__(
         self,
-        max_pool_size: int = 64,
+        max_pool_size: int = 16,
         max_retries: int = 5,
         backoff_factor: float = 1.5,
         timeout: int = 20,
         config: Optional[ConcurrencyConfig] = None,
+        rate_limit_gate: Optional[RateLimitGate] = None,
     ):
         self.config = config or ConcurrencyConfig(
             pool_size=max_pool_size,
@@ -197,6 +228,7 @@ class SessionPool:
         self.max_retries = self.config.max_retries
         self.backoff_factor = self.config.backoff_factor
         self.timeout = self.config.timeout
+        self.rate_limit_gate = rate_limit_gate or RateLimitGate()
 
         self.scaler = AIMDConcurrencyScaler(
             min_workers=self.config.min_workers,
@@ -258,6 +290,7 @@ class SessionPool:
         attempt = 0
         last_exception: Optional[Exception] = None
         while attempt < self.max_retries:
+            self.rate_limit_gate.wait_if_paused()
             start_t = time.time()
             attempt_number = attempt + 1
             try:
@@ -273,11 +306,11 @@ class SessionPool:
                         last_exception = RuntimeError(
                             f"HTTP {resp.status_code} rate limit for {self._safe_url(url)}"
                         )
-                        retry_after = resp.headers.get("Retry-After", "")
                         wait_time = self._rate_limit_wait(resp, attempt_number)
+                        self.rate_limit_gate.trigger_pause(wait_time)
                         logger.warning(
                             "Rate limited downloading %s (HTTP %s, attempt %s/%s); "
-                            "waiting %.1fs",
+                            "pausing all workers for %.1fs",
                             self._safe_url(url),
                             resp.status_code,
                             attempt_number,
@@ -285,7 +318,7 @@ class SessionPool:
                             wait_time,
                         )
                         if attempt < self.max_retries - 1:
-                            time.sleep(wait_time)
+                            self.rate_limit_gate.wait_if_paused()
                     elif 400 <= resp.status_code < 500:
                         self.scaler.record_failure(resp.status_code)
                         raise RuntimeError(
@@ -340,6 +373,7 @@ class SessionPool:
         chunk_size: Optional[int] = None,
     ) -> Generator[bytes, None, None]:
         """Stream a media segment chunk by chunk."""
+        self.rate_limit_gate.wait_if_paused()
         read_timeout = float(timeout) if timeout else float(self.timeout)
         t_out = (4.0, read_timeout)
         c_size = chunk_size or self.config.chunk_size
@@ -351,6 +385,10 @@ class SessionPool:
         total_size = 0
         try:
             with self._session.get(url, headers=req_headers, stream=True, timeout=t_out) as resp:
+                if resp.status_code in (420, 429):
+                    self.scaler.record_failure(resp.status_code)
+                    wait_time = self._rate_limit_wait(resp, 1)
+                    self.rate_limit_gate.trigger_pause(wait_time)
                 resp.raise_for_status()
                 for chunk in resp.iter_content(chunk_size=c_size):
                     if chunk:
@@ -404,6 +442,7 @@ class SessionPool:
 
         last_exception: Optional[Exception] = None
         for attempt in range(self.max_retries):
+            self.rate_limit_gate.wait_if_paused()
             started = time.time()
             last_progress = started
             written = 0
@@ -414,10 +453,10 @@ class SessionPool:
                 ) as resp:
                     if resp.status_code in (420, 429):
                         self.scaler.record_failure(resp.status_code)
-                        retry_after = resp.headers.get("Retry-After", "")
                         wait_time = self._rate_limit_wait(resp, attempt + 1)
+                        self.rate_limit_gate.trigger_pause(wait_time)
                         if attempt < self.max_retries - 1:
-                            time.sleep(wait_time)
+                            self.rate_limit_gate.wait_if_paused()
                             continue
                         resp.raise_for_status()
 
@@ -536,16 +575,17 @@ class SessionPool:
             range_retries = min(self.max_retries, 3)
             range_timeout = (timeout[0], min(timeout[1], 10))
             for attempt in range(range_retries):
+                self.rate_limit_gate.wait_if_paused()
                 range_started = time.time()
                 try:
                     with self._session.get(
                         url, headers=range_headers, stream=True, timeout=range_timeout
                     ) as response:
                         if response.status_code in (420, 429):
-                            retry_after = response.headers.get("Retry-After", "")
                             wait_time = self._rate_limit_wait(response, attempt + 1)
+                            self.rate_limit_gate.trigger_pause(wait_time)
                             if attempt < range_retries - 1:
-                                time.sleep(wait_time)
+                                self.rate_limit_gate.wait_if_paused()
                             continue
                         if response.status_code != 206:
                             raise RuntimeError(

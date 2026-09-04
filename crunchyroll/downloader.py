@@ -41,7 +41,7 @@ from .types import (
 )
 from .utils import sanitize_filename, track_title
 
-MAX_WORKERS = 16
+MAX_WORKERS = 8
 MAX_RETRIES = 5
 BACKOFF_FACTOR = 1.5
 
@@ -55,10 +55,10 @@ def _get_global_session_pool() -> SessionPool:
         if _GLOBAL_SESSION_POOL is None:
             _GLOBAL_SESSION_POOL = SessionPool(
                 config=ConcurrencyConfig(
-                    pool_size=32,
-                    min_workers=6,
-                    max_workers=16,
-                    initial_workers=12,
+                    pool_size=16,
+                    min_workers=4,
+                    max_workers=8,
+                    initial_workers=6,
                 )
             )
         return _GLOBAL_SESSION_POOL
@@ -178,9 +178,9 @@ def download_parts(
     own_pool = False
     if pool is None:
         cfg = concurrency_config or ConcurrencyConfig(
-            min_workers=6,
-            max_workers=16,
-            initial_workers=12,
+            min_workers=4,
+            max_workers=8,
+            initial_workers=6,
             aimd_enabled=True,
             hedging_enabled=False,
         )
@@ -782,10 +782,10 @@ def download_episode(
     shared_pool = SessionPool(
         config=concurrency_config
         or ConcurrencyConfig(
-            pool_size=32,
-            min_workers=6,
-            max_workers=16,
-            initial_workers=12,
+            pool_size=16,
+            min_workers=4,
+            max_workers=8,
+            initial_workers=6,
             aimd_enabled=True,
             hedging_enabled=False,
         )
@@ -889,23 +889,6 @@ def download_episode(
                 )
                 playback_cache[content_id] = ep
                 active_streams[content_id] = ep.token
-
-            # Subtitle discovery can happen well before media download. Get
-            # a fresh playback session immediately before using its manifest,
-            # license, and signed media URLs so an aged stream token does not
-            # expire halfway through a long multi-track episode.
-            refreshed_ep = get_episode(
-                client,
-                content_id,
-                debug=debug,
-                playback_id=content_id,
-            )
-            previous_token = active_streams.get(content_id)
-            if previous_token and previous_token != refreshed_ep.token:
-                delete_stream(client, content_id, previous_token)
-            ep = refreshed_ep
-            playback_cache[content_id] = ep
-            active_streams[content_id] = ep.token
 
             prepared = _prepare_media_track(
                 client, ep, content_id, audio_quality, video_quality, debug

@@ -424,15 +424,23 @@ def delete_stream(
     if not clean_content_id or not clean_token:
         return False
 
-    url = (
-        "https://www.crunchyroll.com/playback/v1/token/"
-        f"{quote(clean_content_id, safe='')}/{quote(clean_token, safe='')}"
-    )
-    headers = {"Accept": "*/*"}
-    try:
-        resp = client.do_request("DELETE", url, headers=headers)
-    except Exception:
-        # Stream cleanup must never hide the original download failure.
-        return False
+    quoted_cid = quote(clean_content_id, safe="")
+    quoted_tok = quote(clean_token, safe="")
 
-    return 200 <= resp.status_code < 300 or resp.status_code in {401, 404, 410}
+    headers = {"Accept": "*/*"}
+    # 1. Try official cr-play-service endpoint (Android TV / Play Service)
+    play_svc_url = f"https://cr-play-service.prd.crunchyrollsvc.com/v1/token/{quoted_cid}/{quoted_tok}"
+    try:
+        resp = client.do_request("DELETE", play_svc_url, headers=headers)
+        if 200 <= resp.status_code < 300 or resp.status_code in {401, 404, 410}:
+            return True
+    except Exception:
+        pass
+
+    # 2. Fallback to web playback endpoint
+    web_url = f"https://www.crunchyroll.com/playback/v1/token/{quoted_cid}/{quoted_tok}"
+    try:
+        resp = client.do_request("DELETE", web_url, headers=headers)
+        return 200 <= resp.status_code < 300 or resp.status_code in {401, 404, 410}
+    except Exception:
+        return False

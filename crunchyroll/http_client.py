@@ -5,7 +5,7 @@ from typing import Optional
 from urllib.parse import urlparse
 from urllib3.util import Timeout as Urllib3Timeout
 from .auth import get_access_token, login_with_credentials, load_config, save_config
-from .session_pool import SessionPool, ConcurrencyConfig
+from .session_pool import SessionPool, ConcurrencyConfig, RateLimitGate
 
 
 class CrunchyrollHttpClient:
@@ -30,13 +30,17 @@ class CrunchyrollHttpClient:
 
         self.session_pool = session_pool or SessionPool(
             config=ConcurrencyConfig(
-                pool_size=32,
+                pool_size=16,
+                min_workers=4,
+                max_workers=8,
+                initial_workers=6,
                 max_retries=5,
                 backoff_factor=1.5,
                 timeout=20,
             )
         )
         self.session = self.session_pool.get_session()
+        self.rate_limit_gate = getattr(self.session_pool, "rate_limit_gate", None) or RateLimitGate()
 
         # check for android tv tokens
         cfg = load_config()
@@ -146,6 +150,8 @@ class CrunchyrollHttpClient:
         )
         heartbeat = threading.Thread(target=_heartbeat, daemon=True)
         heartbeat.start()
+        if hasattr(self, "rate_limit_gate") and self.rate_limit_gate:
+            self.rate_limit_gate.wait_if_paused()
         try:
             response = self.session.request(method, url, headers=headers, **kwargs)
         except Exception as exc:
@@ -197,6 +203,8 @@ class CrunchyrollHttpClient:
             retries += 1
             status_code = response.status_code
             wait_time = self._rate_limit_wait(response, retries)
+            if hasattr(self, "rate_limit_gate") and self.rate_limit_gate:
+                self.rate_limit_gate.trigger_pause(wait_time)
             retry_after = response.headers.get("Retry-After", "")
             header_note = f" Retry-After={retry_after}s." if retry_after else ""
             print(
@@ -205,7 +213,10 @@ class CrunchyrollHttpClient:
                 f"({retries}/{self.MAX_RATE_LIMIT_RETRIES}).{header_note}",
                 flush=True,
             )
-            time.sleep(wait_time)
+            if hasattr(self, "rate_limit_gate") and self.rate_limit_gate:
+                self.rate_limit_gate.wait_if_paused()
+            else:
+                time.sleep(wait_time)
             retry_started = time.monotonic()
             response = self.session.request(method, url, headers=headers, **kwargs)
             print(

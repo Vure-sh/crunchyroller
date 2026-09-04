@@ -1,5 +1,7 @@
 import json
 import os
+import threading
+import time
 import uuid
 from typing import Dict, Any, Optional, Tuple
 import requests
@@ -7,25 +9,90 @@ import requests
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_FILE = os.path.join(_PROJECT_ROOT, "config.json")
 
-# just need one device id per session
-_DEVICE_ID = str(uuid.uuid4())
+DEFAULT_CONFIG: Dict[str, Any] = {
+    "video_quality": "1080p",
+    "audio_quality": "192k",
+    "audio_lang": "ja-JP",
+    "subs_lang": "en-US",
+    "force_download": False,
+}
+
+
+def load_config(config_path: str = CONFIG_FILE) -> Dict[str, Any]:
+    """load config if it exists, or automatically create it with defaults if missing"""
+    if not os.path.exists(config_path):
+        try:
+            save_config(DEFAULT_CONFIG, config_path)
+            return dict(DEFAULT_CONFIG)
+        except Exception:
+            return dict(DEFAULT_CONFIG)
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return dict(DEFAULT_CONFIG)
+
+
+def save_config(config_dict: Dict[str, Any], config_path: str = CONFIG_FILE) -> None:
+    """save settings"""
+    existing: Dict[str, Any] = {}
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+        except Exception:
+            existing = {}
+    existing.update(config_dict)
+    try:
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(existing, f, indent=4)
+    except Exception as e:
+        print(f"Warning: Failed to save config to {config_path}: {e}")
+
+
+def get_device_id(config_path: str = CONFIG_FILE) -> str:
+    """Retrieve or generate and persist a stable device ID."""
+    cfg = load_config(config_path)
+    dev_id = cfg.get("device_id")
+    if not dev_id:
+        dev_id = str(uuid.uuid4())
+        save_config({"device_id": dev_id}, config_path)
+    return dev_id
+
+
+_CACHED_TOKEN_LOCK = threading.Lock()
+_CACHED_TOKEN_INFO: Dict[str, Any] = {
+    "token": "",
+    "etp_rt": "",
+    "expires_at": 0.0,
+}
 
 
 def get_access_token(etp_rt: str) -> str:
-    """swap our session cookie for a bearer token"""
+    """swap our session cookie for a bearer token with caching"""
+    now = time.monotonic()
+    with _CACHED_TOKEN_LOCK:
+        if (
+            _CACHED_TOKEN_INFO["token"]
+            and _CACHED_TOKEN_INFO["etp_rt"] == etp_rt
+            and now < _CACHED_TOKEN_INFO["expires_at"]
+        ):
+            return _CACHED_TOKEN_INFO["token"]
+
     url = "https://www.crunchyroll.com/auth/v1/token"
+    dev_id = get_device_id()
     headers = {
         "Authorization": "Basic bm9haWhkZXZtXzZpeWcwYThsMHE6",
         "Content-Type": "application/x-www-form-urlencoded",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
     }
     cookies = {
-        "device_id": _DEVICE_ID,
+        "device_id": dev_id,
         "etp_rt": etp_rt,
     }
     data = {
         "grant_type": "etp_rt_cookie",
-        "device_id": _DEVICE_ID,
+        "device_id": dev_id,
         "device_type": "Chrome on Windows",
     }
 
@@ -36,7 +103,13 @@ def get_access_token(etp_rt: str) -> str:
         )
 
     json_resp = response.json()
-    return json_resp.get("access_token", "")
+    token = json_resp.get("access_token", "")
+    expires_in = float(json_resp.get("expires_in", 300))
+    with _CACHED_TOKEN_LOCK:
+        _CACHED_TOKEN_INFO["token"] = token
+        _CACHED_TOKEN_INFO["etp_rt"] = etp_rt
+        _CACHED_TOKEN_INFO["expires_at"] = time.monotonic() + max(expires_in - 30, 10)
+    return token
 
 
 def auto_detect_etp_rt() -> Optional[str]:
@@ -282,50 +355,6 @@ def login_with_credentials(
 ) -> Tuple[str, str]:
     """Login with username & password using Android TV client to get native Android TV tokens."""
     return login_with_android_tv(username, password, device_id=device_id_val)
-
-
-
-
-
-DEFAULT_CONFIG: Dict[str, Any] = {
-    "video_quality": "1080p",
-    "audio_quality": "192k",
-    "audio_lang": "ja-JP",
-    "subs_lang": "en-US",
-    "force_download": False,
-}
-
-
-def load_config(config_path: str = CONFIG_FILE) -> Dict[str, Any]:
-    """load config if it exists, or automatically create it with defaults if missing"""
-    if not os.path.exists(config_path):
-        try:
-            save_config(DEFAULT_CONFIG, config_path)
-            return dict(DEFAULT_CONFIG)
-        except Exception:
-            return dict(DEFAULT_CONFIG)
-    try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return dict(DEFAULT_CONFIG)
-
-
-def save_config(config_dict: Dict[str, Any], config_path: str = CONFIG_FILE) -> None:
-    """save settings"""
-    existing: Dict[str, Any] = {}
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                existing = json.load(f)
-        except Exception:
-            existing = {}
-    existing.update(config_dict)
-    try:
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(existing, f, indent=4)
-    except Exception as e:
-        print(f"Warning: Failed to save config to {config_path}: {e}")
 
 
 def open_webview_login() -> Optional[str]:
