@@ -8,7 +8,7 @@ Multi-threaded DASH downloads, multiple audio & subtitle tracks, Widevine DRM de
 [![Release](https://img.shields.io/github/v/release/Vure-sh/crunchyroller?color=black&style=for-the-badge)](https://github.com/Vure-sh/crunchyroller/releases/latest)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-black?style=for-the-badge)](https://github.com/Vure-sh/crunchyroller/releases/latest)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-black?style=for-the-badge&logo=python)](https://www.python.org/)
-[![License](https://img.shields.io/badge/License-MIT-black?style=for-the-badge)](LICENSE)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-black?style=for-the-badge)](LICENSE)
 
 [**📥 Download Latest Release**](https://github.com/Vure-sh/crunchyroller/releases/latest) • [**✨ Features**](#-features) • [**🔑 Widevine Setup**](#-widevine-keys-required) • [**💻 CLI Reference**](#-cli-reference) • [**🤖 Discord Bot**](#-discord-bot-remote-control) • [**⚙️ Developer Setup**](#-developer-setup)
 
