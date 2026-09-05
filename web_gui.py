@@ -52,7 +52,10 @@ from crunchyroll.downloader import download_episode
 from crunchyroll.http_client import CrunchyrollHttpClient
 
 # root folder for static web assets
-WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
+base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+WEB_DIR = os.path.join(base_dir, "web")
+if not os.path.exists(WEB_DIR):
+    WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 
 # global download & app state
 initial_cfg = load_config()

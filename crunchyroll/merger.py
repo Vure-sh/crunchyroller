@@ -4,6 +4,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 from typing import List, Optional
 
 from .types import EpisodeInfo, MediaTrack
@@ -14,9 +15,21 @@ logger = logging.getLogger("crunchyroll.merger")
 
 def find_ffmpeg() -> str:
     """Locates ffmpeg binary locally or in the system PATH."""
-    local_binary = os.path.join(os.getcwd(), "ffmpeg.exe" if os.name == "nt" else "ffmpeg")
-    if os.path.exists(local_binary):
-        return local_binary
+    bin_name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    candidates = [
+        os.path.join(os.getcwd(), bin_name),
+        os.path.join(os.path.dirname(os.path.abspath(sys.executable)), bin_name),
+        os.path.join(os.path.dirname(os.path.abspath(sys.executable)), "_internal", bin_name),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", bin_name),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "_internal", bin_name),
+    ]
+    if hasattr(sys, "_MEIPASS"):
+        candidates.append(os.path.join(sys._MEIPASS, bin_name))
+
+    for c in candidates:
+        if os.path.exists(c):
+            return os.path.abspath(c)
+
     found = shutil.which("ffmpeg")
     if found:
         return found

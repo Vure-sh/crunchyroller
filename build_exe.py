@@ -47,17 +47,23 @@ def build():
         "--hidden-import=curl_cffi",
         "--hidden-import=webview",
         *data_args,
-        "main.py",
+        os.path.join(root, "main.py"),
     ]
 
     print("Running command:", " ".join(cmd))
-    subprocess.check_call(cmd)
+    subprocess.check_call(cmd, cwd=root)
     
     dist_dir = os.path.join(root, "dist", "crunchyroller")
     readme_path = os.path.join(dist_dir, "README.txt")
 
+    # Copy ffmpeg.exe to dist_dir root next to crunchyroller.exe
+    ffmpeg_src = os.path.join(root, "ffmpeg.exe")
+    ffmpeg_dst = os.path.join(dist_dir, "ffmpeg.exe")
+    if os.path.exists(ffmpeg_src) and not os.path.exists(ffmpeg_dst):
+        shutil.copy2(ffmpeg_src, ffmpeg_dst)
+
     readme_content = """========================================================================
-                      CRUNCHYROLLER v1.2.1
+                      CRUNCHYROLLER v2.0.0
 ========================================================================
 
 HOW TO RUN:
@@ -89,11 +95,27 @@ REQUIREMENTS:
    and install it automatically from Microsoft.
 
 ------------------------------------------------------------------------
+WHAT'S NEW IN v2.0.0:
+------------------------------------------------------------------------
+- Bypassed CDN Speed Limit: Uses the mobile download endpoint to bypass
+  the ~1 MB/s rate limit on standard web playback streams.
+- Persistent Device ID: Eliminated 420/429 rate limit issues by maintaining
+  a persistent client identity and proper stream session cleanup.
+- Multi-Track Audio & Subtitles: Download all available audio dubs and soft
+  subtitles multiplexed into MKV with explicit default track flags.
+- Force Download: Added Web GUI toggle and --force-download CLI option.
+- Android TV Login: Native login support with automatic session renewal.
+- Direct SegmentBase Streaming: Chunked downloads and live progress for
+  unsegmented titles (e.g. Blue Lock).
+- Multi-KID Decryption: Fixed decryption key assignment for multi-track audio.
+- CDN Mirror Selection: Automatic mirror detection and -x / --server option.
+- Network Tuning: Configured 1 MB socket receive buffers and TCP_NODELAY.
+
+------------------------------------------------------------------------
 WHAT'S NEW IN v1.2.1:
 ------------------------------------------------------------------------
 - Fixed: PSSH not found in MPD manifest for certain series (e.g. Blue Lock)
-  ContentProtection is now searched across the entire manifest tree,
-  not just inside AdaptationSet elements.
+- Chunked streaming download for unsegmented / SegmentBase streams
 
 ------------------------------------------------------------------------
 WHAT'S NEW IN v1.2.0:
@@ -118,7 +140,7 @@ NEED HELP?
     print(f"\nSuccess! Portable app built at:\n{exe_path}\nREADME generated at:\n{readme_path}")
 
     # 4. create release zip archive
-    zip_name = "crunchyroller-v1.2.1-win64.zip"
+    zip_name = "crunchyroller-v2.0.0-win64.zip"
     zip_path = os.path.join(root, zip_name)
     print(f"\nCompressing release into {zip_name}...")
     
