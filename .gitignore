@@ -40,3 +40,6 @@ venv/
 Thumbs.db
 tests/
 benchmarks/
+
+*.exe
+*.log
