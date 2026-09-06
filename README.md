@@ -6,11 +6,13 @@
 Multi-threaded DASH downloads, multiple audio & subtitle tracks, Widevine DRM decryption, and auto-muxing to MKV.
 
 [![Release](https://img.shields.io/github/v/release/Vure-sh/crunchyroller?color=black&style=for-the-badge)](https://github.com/Vure-sh/crunchyroller/releases/latest)
+[![Stars](https://img.shields.io/github/stars/Vure-sh/crunchyroller?color=ffd700&style=for-the-badge)](https://github.com/Vure-sh/crunchyroller/stargazers)
+[![Downloads](https://img.shields.io/github/downloads/Vure-sh/crunchyroller/total?color=black&style=for-the-badge)](https://github.com/Vure-sh/crunchyroller/releases)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-black?style=for-the-badge)](https://github.com/Vure-sh/crunchyroller/releases/latest)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-black?style=for-the-badge&logo=python)](https://www.python.org/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-black?style=for-the-badge)](LICENSE)
 
-[**📥 Download Latest Release**](https://github.com/Vure-sh/crunchyroller/releases/latest) • [**✨ Features**](#-features) • [**🔑 Widevine Setup**](#-widevine-keys-required) • [**💻 CLI Reference**](#-cli-reference) • [**🤖 Discord Bot**](#-discord-bot-remote-control) • [**⚙️ Developer Setup**](#-developer-setup)
+[**📥 Download Portable App**](https://github.com/Vure-sh/crunchyroller/releases/latest) • [**✨ Features**](#-features) • [**💡 Why Crunchyroller?**](#-why-crunchyroller) • [**🔑 Widevine Setup**](#-widevine-keys-required) • [**💻 CLI Reference**](#-cli-reference) • [**🤖 Discord Bot**](#-discord-bot-remote-control)
 
 ---
 
@@ -20,17 +22,31 @@ Multi-threaded DASH downloads, multiple audio & subtitle tracks, Widevine DRM de
 
 ---
 
+## 💡 Why Crunchyroller?
+
+Most downloaders are terminal-only scripts that suffer from bandwidth throttling or get locked out with server bans on long queues. **Crunchyroller was specifically designed to solve these exact limitations:**
+
+| Feature | Typical Downloaders | 🎬 Crunchyroller |
+| :--- | :--- | :--- |
+| **User Interface** | Terminal CLI only | **Modern Minimalist Web GUI & Desktop Window** + Full CLI |
+| **Download Speeds** | Throttled by CDN token-buckets (~300 KB/s) | **Unthrottled CDN Routing** via Android TV & Mobile sync profiles (~1.8 MB/s) |
+| **Rate-Limits & Bans** | Frequent `KAT-3002` concurrent stream bans & HTTP 420s | **Anti-Ban Architecture**: Persistent device ID, instant stream cleanup (`delete_stream`), and AIMD pacing |
+| **Account Login** | Requires manual DevTools inspection to copy cookies | **In-App Login**: Browser login, direct email/password, or cookie capture |
+| **Multi-Track Sync** | Audio drift, desync, or missing sub tracks | **Timescale-accurate** DASH timeline alignment + embedded soft subtitles into MKV |
+| **Remote Control** | None | **Integrated Discord Bot** with live progress embeds & slash commands |
+
+---
+
 ## ✨ Features
 
-- 🖥️ **Modern Glassmorphism Desktop UI**: Minimalist native app window powered by PyWebView, with fallback to your default browser.
-- ⚡ **Multi-Threaded DASH Downloader**: High-speed segmented downloading for individual episodes, full seasons, or complete series.
-- 🔊 **Multi-Audio & Multi-Subtitles**: Select multiple dub tracks (Japanese, English, Spanish, French, German, etc.) and soft subtitles multiplexed together.
-- 🔑 **Widevine DRM Decryption**: Automated CENC stream decryption using your Widevine device keys (`.wvd` or `client_id.bin` + `private_key.pem`).
-- 🌐 **In-App Session Capture**: Automatically captures and stores your `etp_rt` session token via web login or browser cookie detection.
-- 🎬 **FFmpeg Auto-Muxing**: Merges video streams, all audio tracks, soft subtitles, embedded fonts, and metadata directly into a clean `.mkv` file.
-- 🤖 **Discord Bot Remote Control**: Trigger and queue downloads directly from your phone via interactive Discord slash commands with live progress embeds.
-- 💻 **Versatile CLI Mode**: Full command-line interface with batch downloading from text files and granular stream selection.
-- 📱 **Android Auth Companion**: Integrated companion module for mobile authentication flows.
+- 🖥️ **Modern Dark-Mode GUI**: Clean glassmorphism interface powered by PyWebView or accessible in your default browser at `localhost:8000`.
+- ⚡ **Adaptive Multi-Threaded Engine**: Dynamic AIMD worker scaling tunes concurrency on-the-fly to sustain maximum bandwidth without tripping CDN edge limits.
+- 🔊 **True Multi-Audio & Soft Subtitles**: Download Japanese, English, Spanish, French, German, or all available audio dubs and subtitles into a single `.mkv` container.
+- 🛡️ **Anti-Ban Session Architecture**: Zero stream-limit lockouts (`KAT-3002`). Temporary subtitle/dub sessions are automatically closed within milliseconds.
+- 🔑 **Automated Widevine Decryption**: CENC stream decryption using your Widevine device keys (`.wvd` or `client_id.bin` + `private_key.pem`).
+- 🎬 **Lossless FFmpeg Muxing**: Direct muxing of decrypted video, audio, ASS/VTT subtitles, track names, and cover art metadata.
+- 🤖 **Discord Bot Remote Control**: Queue downloads directly from your phone via `/download` with interactive season selectors and live progress updates.
+- 💻 **Granular CLI Mode**: Complete terminal interface supporting batch URL files, quality overrides, and mirror selections.
 
 ---
 
@@ -206,6 +222,12 @@ crunchyroller/
 ├── requirements.txt         # Python package dependencies
 └── README.md
 ```
+
+---
+
+## ⭐ Support & Star
+
+If Crunchyroller helped you archive your favorite anime or solved rate-limiting issues for you, please consider **leaving a star ⭐ on GitHub**! It helps others discover the project and keeps new updates coming.
 
 ---
 
