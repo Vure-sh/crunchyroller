@@ -10,7 +10,8 @@
 
 ---
 
-<img width="1816" alt="Crunchyroller Interface" src="https://github.com/user-attachments/assets/e064a2ad-f2c8-40d8-93a6-f32b9a72cb24" />
+<img width="848" height="746" alt="image" src="https://github.com/user-attachments/assets/bcd9dbb1-86dc-4560-beaf-c07dcc5c4a79" />
+
 
 </div>
 
