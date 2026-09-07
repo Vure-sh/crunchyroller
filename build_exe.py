@@ -62,8 +62,14 @@ def build():
     if os.path.exists(ffmpeg_src) and not os.path.exists(ffmpeg_dst):
         shutil.copy2(ffmpeg_src, ffmpeg_dst)
 
+    # Copy bin/ directory structure for N_m3u8DL-RE support
+    bin_src = os.path.join(root, "bin")
+    bin_dst = os.path.join(dist_dir, "bin")
+    if os.path.exists(bin_src) and not os.path.exists(bin_dst):
+        shutil.copytree(bin_src, bin_dst)
+
     readme_content = """========================================================================
-                      CRUNCHYROLLER v2.0.0
+                      CRUNCHYROLLER v2.1.0
 ========================================================================
 
 HOW TO RUN:
@@ -93,6 +99,18 @@ REQUIREMENTS:
    Required to display the native app window.
    If WebView2 is missing on your PC, the app will show a prompt to download
    and install it automatically from Microsoft.
+
+------------------------------------------------------------------------
+WHAT'S NEW IN v2.1.0:
+------------------------------------------------------------------------
+- Optional N_m3u8DL-RE Engine: Added support for N_m3u8DL-RE + mp4decrypt
+  as an alternative backend downloader (toggle via config.json).
+- Anti-Ban & Rate-Limit Protections: Session pacing and cleanup to avoid
+  stream lockouts and KAT-3002 errors.
+- Enhanced Binary Discovery: Automatically resolves N_m3u8DL-RE,
+  mp4decrypt, and ffmpeg from the 'bin/' folder or app root.
+- UI Polish & Performance: Refined webview interface, improved concurrency
+  scaling, and faster startup.
 
 ------------------------------------------------------------------------
 WHAT'S NEW IN v2.0.0:
@@ -140,7 +158,7 @@ NEED HELP?
     print(f"\nSuccess! Portable app built at:\n{exe_path}\nREADME generated at:\n{readme_path}")
 
     # 4. create release zip archive
-    zip_name = "crunchyroller-v2.0.0-win64.zip"
+    zip_name = "crunchyroller-v2.1.0-win64.zip"
     zip_path = os.path.join(root, zip_name)
     print(f"\nCompressing release into {zip_name}...")
     

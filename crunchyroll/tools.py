@@ -16,16 +16,22 @@ def _project_root() -> str:
 
 
 def _find_binary(names: List[str]) -> str:
-    """Search for a binary in: project root/bin, project root, sys executable dir, PATH."""
+    """Search for a binary in: project root/bin, exe dir/bin, PATH."""
     root = _project_root()
+    exe_dir = os.path.dirname(os.path.abspath(sys.executable))
     search_dirs = [
+        os.path.join(exe_dir, "bin"),
         os.path.join(root, "bin"),
+        os.path.join(os.getcwd(), "bin"),
+        exe_dir,
         root,
-        os.path.dirname(os.path.abspath(sys.executable)),
-        os.path.join(os.path.dirname(os.path.abspath(sys.executable)), "_internal"),
+        os.getcwd(),
+        os.path.join(exe_dir, "_internal"),
+        os.path.join(exe_dir, "_internal", "bin"),
     ]
     if hasattr(sys, "_MEIPASS"):
         search_dirs.append(sys._MEIPASS)
+        search_dirs.append(os.path.join(sys._MEIPASS, "bin"))
 
     for name in names:
         for d in search_dirs:
@@ -38,7 +44,7 @@ def _find_binary(names: List[str]) -> str:
 
     raise FileNotFoundError(
         f"Could not find any of {names}.\n"
-        "Place the binary in the project's 'bin/' subdirectory (e.g. D:\\Crun\\bin\\)."
+        "Place the binary in the 'bin/' folder next to crunchyroller.exe or in the project folder."
     )
 
 
