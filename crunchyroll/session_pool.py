@@ -57,16 +57,16 @@ class RateLimitGate:
 @dataclass
 class ConcurrencyConfig:
     """Configuration for concurrency, scaling, connection pool, and hedging."""
-    min_workers: int = 4
-    max_workers: int = 10
-    initial_workers: int = 8
+    min_workers: int = 8
+    max_workers: int = 16
+    initial_workers: int = 16
     aimd_enabled: bool = True
     hedging_enabled: bool = False  # disabled: hedge timeout math kills downloads on slow CDN segments
     hedge_factor: float = 2.0  # multiplier of median latency to trigger hedge
     hedge_min_delay: float = 1.5  # minimum delay in seconds before hedging
     max_retries: int = 5
     backoff_factor: float = 0.5
-    pool_size: int = 20
+    pool_size: int = 32
     timeout: int = 12
     chunk_size: int = 524288  # 512 KB read buffer
 

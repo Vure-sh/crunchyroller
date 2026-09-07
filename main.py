@@ -203,7 +203,23 @@ def process_url(client: CrunchyrollHttpClient, url: str, args: argparse.Namespac
         )
 
 
+def prompt_star_if_first_run() -> None:
+    """Friendly one-time prompt to star the repo on GitHub."""
+    try:
+        cfg = load_config()
+        if not cfg.get("has_seen_star_prompt"):
+            print(
+                "\n"
+                "  ⭐ Enjoying crunchyroller? Please consider giving it a star on GitHub:\n"
+                "     https://github.com/Vure-sh/crunchyroller\n"
+            )
+            save_config({"has_seen_star_prompt": True})
+    except Exception:
+        pass
+
+
 def main() -> None:
+    prompt_star_if_first_run()
     parser = argparse.ArgumentParser(
         description="Downloads anime from Crunchyroll and outputs them in an MKV file."
     )
@@ -253,11 +269,6 @@ def main() -> None:
         help="Enable tail-latency chunk hedging (disabled by default)",
     )
     parser.add_argument(
-        "--benchmark",
-        action="store_true",
-        help="Run automated throughput and memory verification benchmark suite",
-    )
-    parser.add_argument(
         "--season",
         type=int,
         default=0,
@@ -281,15 +292,6 @@ def main() -> None:
     )
 
     args = parser.parse_args()
-
-    # run benchmarks if requested
-    if args.benchmark:
-        from benchmarks.benchmark_throughput import run_throughput_benchmark
-        from benchmarks.benchmark_memory import run_memory_benchmark
-        print("Running Crunchyroller Performance and Resource Benchmarks...\n")
-        run_throughput_benchmark()
-        run_memory_benchmark()
-        return
 
     # launch gui if asked or if we have no inputs
     if args.gui or len(sys.argv) == 1 or (not args.url and not args.file and not args.etp_rt and not args.email):

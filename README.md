@@ -63,6 +63,21 @@ Drop either of these into the app folder (next to `crunchyroller.exe` or in the 
 
 ---
 
+## Optional Download Engine: N_m3u8DL-RE
+
+In addition to the built-in native Python downloader, Crunchyroller supports [N_m3u8DL-RE](https://github.com/nilaoda/N_m3u8DL-RE) as an alternative backend engine (thanks to [@AnCry1596](https://github.com/AnCry1596) for the implementation!).
+
+### To use N_m3u8DL-RE (completely optional):
+1. Download `N_m3u8DL-RE` and `mp4decrypt` (Bento4) for your platform and place them inside the `bin/` folder.
+2. In `config.json`, enable the engine:
+   ```json
+   "use_n_m3u8dl_re": true
+   ```
+
+*(If set to `false`, Crunchyroller uses its built-in unthrottled pure-Python downloader).*
+
+---
+
 ## CLI Usage
 
 If you prefer using the terminal as a CLI downloader:

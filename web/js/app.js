@@ -309,7 +309,31 @@ window.addEventListener('DOMContentLoaded', async () => {
       });
     }
   });
+
+  initStarBanner();
 });
+
+// Prompt banner for starring the repo
+function initStarBanner() {
+  try {
+    if (!localStorage.getItem('star_prompt_dismissed')) {
+      const banner = document.getElementById('star-banner');
+      if (banner) banner.style.display = 'flex';
+    }
+  } catch (e) {}
+}
+
+function dismissStarBanner(starred) {
+  try {
+    localStorage.setItem('star_prompt_dismissed', 'true');
+  } catch (e) {}
+  const banner = document.getElementById('star-banner');
+  if (banner) {
+    banner.style.opacity = '0';
+    banner.style.transform = 'translateY(-6px)';
+    setTimeout(() => { banner.style.display = 'none'; }, 200);
+  }
+}
 
 // sync UI with backend state
 function applyState(state) {
@@ -319,7 +343,7 @@ function applyState(state) {
   if (state.authenticated) {
     badge.classList.add('on');
     if (state.auth_type === 'android_tv') {
-      badgeTxt.textContent = 'connected (android tv)';
+      badgeTxt.textContent = 'connected (login)';
     } else if (state.auth_type === 'token') {
       badgeTxt.textContent = 'connected (token)';
     } else {
@@ -377,19 +401,6 @@ async function detect() {
   }
 }
 
-// launch pywebview window to log in
-async function webviewLogin() {
-  toast('opening in-app browser…');
-  const res = await api('/api/webview-login', {});
-  if (res.success) {
-    toast('logged in!', 'ok');
-    document.getElementById('badge').classList.add('on');
-    document.getElementById('badge-txt').textContent = 'connected (token)';
-  } else {
-    toast(res.error || 'login closed', 'err');
-  }
-}
-
 // manual token save
 async function saveToken() {
   const val = document.getElementById('tok').value.trim();
@@ -436,13 +447,13 @@ async function loginCredentials() {
     btn.disabled = true;
     btn.textContent = 'signing in...';
   }
-  toast('signing in to Android TV...', 'ok');
+  toast('signing in...', 'ok');
   try {
     const res = await api('/api/login-credentials', { username, password });
     if (res.success) {
-      toast('Android TV token created!', 'ok');
+      toast('signed in successfully!', 'ok');
       document.getElementById('badge').classList.add('on');
-      document.getElementById('badge-txt').textContent = 'connected (android tv)';
+      document.getElementById('badge-txt').textContent = 'connected (login)';
       document.getElementById('login-pass').value = '';
       setTimeout(() => {
         const panel = document.getElementById('android-login-panel');
@@ -571,13 +582,17 @@ function renderEpisodeTree(data) {
 
     cbWrap.addEventListener('click', (e) => {
       e.stopPropagation();
-      seasonCb.checked = !seasonCb.checked;
+      const epCbs = [...epList.querySelectorAll('.epc')];
+      const allChecked = epCbs.length > 0 && epCbs.every(c => c.checked);
+      const shouldCheck = !allChecked;
+
+      seasonCb.checked = shouldCheck;
       seasonCb.indeterminate = false;
-      const isChecked = seasonCb.checked;
-      epList.querySelectorAll('.epc').forEach(cb => {
-        cb.checked = isChecked;
+
+      epCbs.forEach(cb => {
+        cb.checked = shouldCheck;
         const row = cb.closest('.ep-row');
-        if (row) row.classList.toggle('selected', isChecked);
+        if (row) row.classList.toggle('selected', shouldCheck);
       });
       updateSeasonState(block);
       updateTotalCount();
@@ -602,6 +617,7 @@ function renderEpisodeTree(data) {
       cb.checked = true;
       cb.className = 'cb-custom epc';
       cb.dataset.id = ep.id;
+      cb.tabIndex = -1;
 
       const num = document.createElement('span');
       num.className = 'ep-num';
@@ -611,8 +627,10 @@ function renderEpisodeTree(data) {
       name.className = 'ep-name';
       name.textContent = ep.title;
 
-      row.addEventListener('click', () => {
-        cb.checked = !cb.checked;
+      row.addEventListener('click', (e) => {
+        if (e.target !== cb) {
+          cb.checked = !cb.checked;
+        }
         row.classList.toggle('selected', cb.checked);
         updateSeasonState(block);
         updateTotalCount();

@@ -8,6 +8,8 @@ config.json
 # Binaries & Large Executables
 ffmpeg.exe
 ffmpeg
+bin/*
+!bin/README.md
 
 # Build Artifacts & Packaging
 build/

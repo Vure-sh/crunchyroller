@@ -47,9 +47,10 @@ sys.stdout = SafeStream(sys.stdout)
 sys.stderr = SafeStream(sys.stderr)
 
 from crunchyroll.api import get_episode_info, get_season_episodes, get_series, parse_url_type
-from crunchyroll.auth import load_config, save_config, auto_detect_etp_rt, open_webview_login
+from crunchyroll.auth import load_config, save_config, auto_detect_etp_rt
 from crunchyroll.downloader import download_episode
 from crunchyroll.http_client import CrunchyrollHttpClient
+from crunchyroll.session_pool import ConcurrencyConfig
 
 # root folder for static web assets
 base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
@@ -182,6 +183,12 @@ def _run_download(items, vq, aq, al, sl, force_download=False):
                 audio_langs=a_langs, subs_langs=s_langs,
                 video_quality=vq, audio_quality=aq, progress_cb=_cb,
                 force_download=force_download,
+                concurrency_config=ConcurrencyConfig(
+                    min_workers=8,
+                    max_workers=16,
+                    initial_workers=16,
+                    pool_size=32,
+                ),
             )
             with LOCK:
                 STATE["download"]["overall_pct"] = round(((idx + 1) / ep_total) * 100, 1)
@@ -302,15 +309,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             else:
                 self._json({"success": False, "error": "couldn't find a session cookie. log into crunchyroll.com first."}, 404)
 
-        elif path == "/api/webview-login":
-            tok = open_webview_login()
-            if tok:
-                with LOCK: STATE["etp_rt"] = tok
-                save_config({"etp_rt": tok})
-                self._json({"success": True, "etp_rt": tok})
-            else:
-                self._json({"success": False, "error": "In-app login window closed or session token not detected."}, 400)
-
         elif path == "/api/login":
             tok = data.get("etp_rt", "").strip()
             if not tok:
@@ -335,7 +333,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 with LOCK:
                     STATE["android_token"] = acc_tok
                     STATE["etp_rt"] = ""
-                self._json({"success": True, "message": "Logged in with Android TV credentials!"})
+                self._json({"success": True, "message": "Logged in successfully!"})
             except Exception as e:
                 self._json({"success": False, "error": str(e)}, 401)
 

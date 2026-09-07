@@ -273,6 +273,7 @@ def get_episode_download(
     play_stream: "PlaybackStream",
     debug: bool = False,
     client_type: str = "android/phone",
+    video_quality: Optional[str] = None,
 ) -> "PlaybackStream":
     """Fetch the mobile /download endpoint for high-speed CDN routing.
 
@@ -292,29 +293,36 @@ def get_episode_download(
     clean_id = str(content_id).strip()
     quoted_content_id = quote(clean_id, safe="")
 
+    res_val = str(video_quality or "").lower().replace("p", "").strip()
+    if not res_val or not res_val.isdigit():
+        res_val = "720"
+
     download_url = (
-        f"https://cr-play-service.prd.crunchyrollsvc.com/v3/{quoted_content_id}/{client_type}/download"
+        f"https://www.crunchyroll.com/playback/v3/{quoted_content_id}/{client_type}/download?resolution={res_val}"
     )
 
     android_headers: Dict[str, str] = {}
 
-    # Use Android mobile client User-Agent for phone/tablet client paths
+    # Use modern Android mobile client User-Agent for phone/tablet client paths
     if "phone" in client_type or "tablet" in client_type:
-        android_headers["User-Agent"] = (
-            "Crunchyroll/3.46.2 (com.crunchyroll.crunchyroid; build:7; Android 12; API 31; "
-            "HUAWEI LDN-L29 Build/HONORLDN-L29) okhttp/4.12.0"
-        )
+        android_headers["User-Agent"] = "Crunchyroll/3.118.0 Android/14 okhttp/5.3.2"
     else:
         android_headers["User-Agent"] = (
             "Crunchyroll/ANDROIDTV/3.70.0_22358 (Android 12; en-US; SHIELD Android TV Build/SR1A.220624.014)"
         )
 
-    # Authenticate with android token if available, else fall back to web token
+    # Authenticate with android token if available, else fall back to web token (etp_rt)
     raw_android_token = getattr(client, "android_token", None)
     if isinstance(raw_android_token, str) and raw_android_token.strip():
         android_headers["Authorization"] = f"Bearer {raw_android_token.strip()}"
     else:
         web_token = getattr(client, "token", None)
+        if not web_token and getattr(client, "etp_rt", None):
+            try:
+                client.refresh_token()
+                web_token = getattr(client, "token", None)
+            except Exception:
+                pass
         if web_token:
             android_headers["Authorization"] = f"Bearer {str(web_token).strip()}"
 

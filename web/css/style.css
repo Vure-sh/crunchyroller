@@ -82,8 +82,46 @@ header {
   font-weight: 600;
 }
 
-.badge {
+.header-right {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.btn-github-star {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  color: var(--dim);
+  text-decoration: none;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  transition: all 0.25s ease;
+}
+
+.btn-github-star svg {
+  color: #ffd700;
+  transition: transform 0.25s ease;
+}
+
+.btn-github-star:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 215, 0, 0.4);
+  color: var(--white);
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.15);
+}
+
+.btn-github-star:hover svg {
+  transform: scale(1.15) rotate(15deg);
+}
+
+.badge {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -95,6 +133,108 @@ header {
   border: 1px solid var(--border);
   color: var(--dim);
   transition: all 0.3s;
+}
+
+/* Star prompt banner */
+.star-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%);
+  border: 1px solid rgba(255, 215, 0, 0.22);
+  border-radius: var(--radius);
+  padding: 12px 18px;
+  margin-bottom: 24px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  animation: fadeInDown 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.star-banner-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.star-banner-icon {
+  font-size: 1.25rem;
+  line-height: 1;
+  filter: drop-shadow(0 0 8px rgba(255, 215, 0, 0.5));
+}
+
+.star-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.star-banner-title {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.star-banner-desc {
+  font-size: 0.76rem;
+  color: #888;
+}
+
+.star-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.btn-star-cta {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  background: rgba(255, 215, 0, 0.12);
+  border: 1px solid rgba(255, 215, 0, 0.35);
+  border-radius: 6px;
+  color: #ffd700;
+  text-decoration: none;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.btn-star-cta:hover {
+  background: #ffd700;
+  color: #000;
+  box-shadow: 0 0 14px rgba(255, 215, 0, 0.4);
+  transform: translateY(-1px);
+}
+
+.btn-star-dismiss {
+  background: transparent;
+  border: none;
+  color: #555;
+  font-size: 0.88rem;
+  cursor: pointer;
+  padding: 4px 6px;
+  line-height: 1;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.btn-star-dismiss:hover {
+  color: #aaa;
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .badge .dot {
@@ -387,16 +527,16 @@ input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
-  width: 12px;
-  height: 12px;
-  min-width: 12px;
-  min-height: 12px;
-  max-width: 12px;
-  max-height: 12px;
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  min-height: 14px;
+  max-width: 14px;
+  max-height: 14px;
   padding: 0 !important;
   margin: 0 !important;
-  border: 1px solid rgba(255, 255, 255, 0.35) !important;
-  border-radius: 2px !important;
+  border: 1px solid rgba(255, 255, 255, 0.4) !important;
+  border-radius: 3px !important;
   background: transparent !important;
   background-color: transparent !important;
   cursor: pointer;
@@ -413,7 +553,7 @@ input[type="checkbox"] {
 
 .cb-custom:hover,
 input[type="checkbox"]:hover {
-  border-color: rgba(255, 255, 255, 0.75) !important;
+  border-color: rgba(255, 255, 255, 0.85) !important;
 }
 
 .cb-custom:checked,
@@ -421,7 +561,7 @@ input[type="checkbox"]:checked {
   background-color: #ffffff !important;
   border-color: #ffffff !important;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 12 12' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M2.2 6.3L4.8 9L9.8 3' stroke='%23000000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
-  background-size: 8px 8px !important;
+  background-size: 9px 9px !important;
   background-repeat: no-repeat !important;
   background-position: center !important;
 }
@@ -430,8 +570,8 @@ input[type="checkbox"]:checked {
 input[type="checkbox"]:indeterminate {
   background-color: #ffffff !important;
   border-color: #ffffff !important;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 12 12' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cline x1='2.5' y1='6' x2='9.5' y2='6' stroke='%23000000' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") !important;
-  background-size: 8px 8px !important;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 12 12' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cline x1='2.5' y1='6' x2='9.5' y2='6' stroke='%23000000' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E") !important;
+  background-size: 9px 9px !important;
   background-repeat: no-repeat !important;
   background-position: center !important;
 }
@@ -636,9 +776,25 @@ input[type="checkbox"]:indeterminate {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 2px;
+  width: 28px;
+  height: 28px;
+  margin: -5px 2px -5px -4px;
   cursor: pointer;
   flex-shrink: 0;
+  border-radius: 6px;
+  transition: background-color 0.15s ease;
+}
+
+.sn-cb-wrap:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.sn-cb-wrap:hover .cb-custom {
+  border-color: rgba(255, 255, 255, 0.95) !important;
+}
+
+.sn-cb-wrap .cb-custom {
+  pointer-events: none;
 }
 
 .sn-title-wrap {
@@ -741,6 +897,10 @@ input[type="checkbox"]:indeterminate {
 
 .ep-row .cb-custom {
   pointer-events: none;
+}
+
+.ep-row:hover .cb-custom {
+  border-color: rgba(255, 255, 255, 0.85) !important;
 }
 
 .ep-num {

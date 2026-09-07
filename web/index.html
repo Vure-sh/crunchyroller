@@ -6,7 +6,7 @@
   <title>crunchyroller</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=2.5">
+  <link rel="stylesheet" href="/css/style.css?v=2.9">
 </head>
 <body>
 
@@ -15,15 +15,39 @@
       <img src="/logo.svg" alt="logo" class="brand-icon">
       <span class="brand-title">crunchy<b>roller</b></span>
     </div>
-    <div class="badge" id="badge">
-      <div class="dot"></div>
-      <span id="badge-txt">offline</span>
+    <div class="header-right">
+      <a href="https://github.com/Vure-sh/crunchyroller" target="_blank" rel="noopener noreferrer" class="btn-github-star" title="Star crunchyroller on GitHub">
+        <svg height="14" viewBox="0 0 16 16" width="14" fill="currentColor">
+          <path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.751.751 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"></path>
+        </svg>
+        <span>Star</span>
+      </a>
+      <div class="badge" id="badge">
+        <div class="dot"></div>
+        <span id="badge-txt">offline</span>
+      </div>
     </div>
   </header>
 
   <main>
 
     <div class="shell">
+
+      <div id="star-banner" class="star-banner" style="display:none;">
+        <div class="star-banner-left">
+          <span class="star-banner-icon">⭐</span>
+          <div class="star-banner-text">
+            <span class="star-banner-title">Enjoying crunchyroller?</span>
+            <span class="star-banner-desc">Please consider leaving a star on GitHub to support development!</span>
+          </div>
+        </div>
+        <div class="star-banner-actions">
+          <a href="https://github.com/Vure-sh/crunchyroller" target="_blank" rel="noopener noreferrer" class="btn-star-cta" onclick="dismissStarBanner(true)">
+            ★ Star on GitHub
+          </a>
+          <button class="btn-star-dismiss" onclick="dismissStarBanner(false)" title="Dismiss">✕</button>
+        </div>
+      </div>
 
       <div class="card">
         <div class="card-label">session</div>
@@ -34,9 +58,8 @@
             <button class="btn-s" onclick="saveToken()">save</button>
           </div>
         </div>
-        <div class="grid2" style="margin-top:12px">
-          <button onclick="webviewLogin()">browser login</button>
-          <button id="toggle-android-login-btn" onclick="toggleAndroidLoginForm()">android tv login</button>
+        <div style="margin-top:12px">
+          <button id="toggle-android-login-btn" onclick="toggleAndroidLoginForm()" style="width:100%">login (email / password)</button>
         </div>
 
         <div id="android-login-panel" style="display:none;">
@@ -56,7 +79,7 @@
         </div>
 
         <p class="hint">
-          use browser login to sign in via web, or click android tv login to sign in with email & password for a native TV token.
+          paste your etp_rt cookie, or sign in directly with email & password.
         </p>
       </div>
 
@@ -150,7 +173,7 @@
   </main>
 
   <div id="toast"></div>
-  <script src="/js/particles.js?v=2.6"></script>
-  <script src="/js/app.js?v=2.6"></script>
+  <script src="/js/particles.js?v=2.9"></script>
+  <script src="/js/app.js?v=2.9"></script>
 </body>
 </html>
