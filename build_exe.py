@@ -65,11 +65,11 @@ def build():
     # Copy bin/ directory structure for N_m3u8DL-RE support
     bin_src = os.path.join(root, "bin")
     bin_dst = os.path.join(dist_dir, "bin")
-    if os.path.exists(bin_src) and not os.path.exists(bin_dst):
-        shutil.copytree(bin_src, bin_dst)
+    if os.path.exists(bin_src):
+        shutil.copytree(bin_src, bin_dst, dirs_exist_ok=True)
 
     readme_content = """========================================================================
-                      CRUNCHYROLLER v2.1.0
+                      CRUNCHYROLLER v2.1.1
 ========================================================================
 
 HOW TO RUN:
@@ -99,6 +99,20 @@ REQUIREMENTS:
    Required to display the native app window.
    If WebView2 is missing on your PC, the app will show a prompt to download
    and install it automatically from Microsoft.
+
+------------------------------------------------------------------------
+WHAT'S NEW IN v2.1.1:
+------------------------------------------------------------------------
+- Fixed Season Listing & Grouping: Group seasons by unique season ID,
+  resolving duplicate or collapsed seasons on series with movies/OVAs.
+- Full Season 0 Support: --season 0 now correctly downloads specials
+  and movie arcs instead of being treated as falsy.
+- List Seasons CLI Flag: Added --list-seasons (-ls) command to view all
+  available seasons and arcs before downloading.
+- Positional URL Support: Download URLs can now be passed directly as
+  positional arguments without needing --url.
+- Clean UI Season Names: Stripped redundant series name prefixes in the
+  desktop season selector.
 
 ------------------------------------------------------------------------
 WHAT'S NEW IN v2.1.0:
@@ -158,7 +172,7 @@ NEED HELP?
     print(f"\nSuccess! Portable app built at:\n{exe_path}\nREADME generated at:\n{readme_path}")
 
     # 4. create release zip archive
-    zip_name = "crunchyroller-v2.1.0-win64.zip"
+    zip_name = "crunchyroller-v2.1.1-win64.zip"
     zip_path = os.path.join(root, zip_name)
     print(f"\nCompressing release into {zip_name}...")
     
