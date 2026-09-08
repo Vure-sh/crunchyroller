@@ -506,6 +506,7 @@ def get_season_episodes(
                 audio_locale=ep_meta_raw.get("audio_locale", item.get("audio_locale", "")),
                 versions=versions,
                 availability_starts=ep_meta_raw.get("availability_starts", ""),
+                season_id=season_id,
             )
         )
 

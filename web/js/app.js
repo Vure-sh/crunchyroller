@@ -558,7 +558,19 @@ function renderEpisodeTree(data) {
 
     const label = document.createElement('span');
     label.className = 'sn-title';
-    label.textContent = 'Season ' + season.season_number;
+
+    let snName = (season.title || '').trim();
+    if (data.title && snName.toLowerCase().startsWith(data.title.toLowerCase())) {
+      snName = snName.slice(data.title.length).replace(/^[\s:–—-]+/, '').trim();
+    }
+    if (!snName) {
+      snName = season.season_number > 0 ? `Season ${season.season_number}` : 'Specials & Movies';
+    } else if (season.season_number === 0 && !snName.toLowerCase().includes('special') && !snName.toLowerCase().includes('movie')) {
+      snName = `Specials • ${snName}`;
+    } else if (season.season_number > 0 && !snName.toLowerCase().startsWith('season') && !snName.toLowerCase().startsWith('s' + season.season_number)) {
+      snName = `S${season.season_number} • ${snName}`;
+    }
+    label.textContent = snName;
 
     const count = document.createElement('span');
     count.className = 'sn-count';

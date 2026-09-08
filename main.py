@@ -181,7 +181,7 @@ def process_url(client: CrunchyrollHttpClient, url: str, args: argparse.Namespac
             subs_langs,
             video_quality,
             audio_quality,
-            season_filter=args.season or 0,
+            season_filter=args.season,
             debug=args.debug_manifest,
             concurrency_config=concurrency_cfg,
             force_download=getattr(args, "force_download", False),
@@ -271,8 +271,14 @@ def main() -> None:
     parser.add_argument(
         "--season",
         type=int,
-        default=0,
-        help="Season number. Not used if an episode link is entered",
+        default=None,
+        help="Season number to download (e.g. 1, 2, 4, 0). If omitted, downloads all seasons.",
+    )
+    parser.add_argument(
+        "--list-seasons",
+        "-ls",
+        action="store_true",
+        help="List all available seasons/arcs for the series and exit",
     )
     parser.add_argument(
         "--etp-rt",
@@ -290,8 +296,16 @@ def main() -> None:
         action="store_true",
         help="Redownload completed episodes and atomically replace existing MKV files",
     )
+    parser.add_argument(
+        "positional_url",
+        nargs="?",
+        default="",
+        help="Optional URL of the episode/season/series to download (alternative to --url)",
+    )
 
     args = parser.parse_args()
+    if args.positional_url and not args.url:
+        args.url = args.positional_url
 
     # launch gui if asked or if we have no inputs
     if args.gui or len(sys.argv) == 1 or (not args.url and not args.file and not args.etp_rt and not args.email):
@@ -332,7 +346,68 @@ def main() -> None:
 
     client = CrunchyrollHttpClient(etp_rt=etp_rt or None, username=args.email or None, password=args.password or None)
 
+    if args.list_seasons:
+        if not args.url:
+            print("Error: --url is required when using --list-seasons (e.g. --url https://www.crunchyroll.com/series/...)")
+            sys.exit(1)
 
+        from crunchyroll.api import get_seasons, parse_url_type
+        kind, cid = parse_url_type(args.url)
+        series_id = cid
+        series_title = ""
+
+        if kind == "episode":
+            try:
+                resp = client.do_request("GET", f"https://www.crunchyroll.com/content/v2/cms/objects/{cid}")
+                if resp.status_code == 200:
+                    items = resp.json().get("data", [])
+                    if items:
+                        meta = items[0].get("episode_metadata", {})
+                        series_id = meta.get("series_id", cid)
+                        series_title = meta.get("series_title", "")
+            except Exception:
+                pass
+        elif kind == "series":
+            try:
+                resp = client.do_request("GET", f"https://www.crunchyroll.com/content/v2/cms/series/{cid}")
+                if resp.status_code == 200:
+                    items = resp.json().get("data", [])
+                    if items:
+                        series_title = items[0].get("title", "")
+            except Exception:
+                pass
+
+        primary_audio = [x.strip() for x in args.audio_lang.split(",") if x.strip()][0] if args.audio_lang else "ja-JP"
+        if primary_audio.lower() in ("all", "*"):
+            primary_audio = "ja-JP"
+        primary_subs = [x.strip() for x in args.subs_lang.split(",") if x.strip()][0] if args.subs_lang else "en-US"
+        if primary_subs.lower() in ("all", "*"):
+            primary_subs = "en-US"
+
+        seasons = get_seasons(client, series_id, audio_locale=primary_audio, sub_locale=primary_subs)
+        if not seasons:
+            print(f"No seasons found for {args.url}")
+            sys.exit(1)
+
+        header = f"Seasons available for '{series_title}' ({series_id}):" if series_title else f"Seasons available for {series_id}:"
+        print()
+        print(header)
+        print("=" * max(len(header), 60))
+        for s in seasons:
+            clean_title = s.title.strip()
+            if series_title and clean_title.lower().startswith(series_title.lower()):
+                clean_title = clean_title[len(series_title):].strip(" :-–—")
+            if not clean_title:
+                clean_title = f"Season {s.season_number}"
+            elif s.season_number == 0 and "special" not in clean_title.lower() and "movie" not in clean_title.lower():
+                clean_title = f"Specials • {clean_title}"
+
+            print(f"  --season {s.season_number:<3} | {clean_title}")
+        print("=" * max(len(header), 60))
+        print("To download a season, run:")
+        print(f"  python main.py --url {args.url} --season <number>")
+        print()
+        sys.exit(0)
 
     if args.file:
         try:

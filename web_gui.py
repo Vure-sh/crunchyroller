@@ -371,14 +371,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     s = get_series(client, cid, api_audio, api_subs)
                     title = s.get("title", "")
                     seasons = []
-                    eps_by_season = {}
-                    for e in s.get("episodes", []):
-                        eps_by_season.setdefault(e.season_number, []).append(e)
+                    seen_season_ids = set()
 
                     for sn in s.get("seasons", []):
-                        eps = eps_by_season.get(sn.season_number, [])
+                        if sn.id in seen_season_ids:
+                            continue
+                        seen_season_ids.add(sn.id)
+
+                        eps = [
+                            e for e in s.get("episodes", [])
+                            if getattr(e, "season_id", "") == sn.id
+                            or (not getattr(e, "season_id", "") and e.season_number == sn.season_number)
+                        ]
+                        if not eps:
+                            continue
+
                         seasons.append({
+                            "id": sn.id,
                             "season_number": sn.season_number,
+                            "title": sn.title or f"Season {sn.season_number}",
+                            "audio_locale": sn.audio_locale,
                             "episodes": [
                                 {
                                     "id": e.id,

@@ -59,6 +59,7 @@ class SeasonEpisode:
     audio_locale: str
     title: str
     availability_starts: str
+    season_id: str = ""
 
 
 @dataclass

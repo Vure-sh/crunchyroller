@@ -1262,7 +1262,7 @@ def download_series(
     subs_langs: List[str],
     video_quality: str,
     audio_quality: str,
-    season_filter: int = 0,
+    season_filter: Optional[int] = None,
     progress_cb: Optional[Callable] = None,
     debug: bool = False,
     concurrency_config: Optional[ConcurrencyConfig] = None,
@@ -1287,7 +1287,7 @@ def download_series(
     series_data = get_series(client, series_id, primary_audio, primary_subs)
     episodes = series_data.get("episodes", [])
 
-    if season_filter > 0:
+    if season_filter is not None:
         episodes = [ep for ep in episodes if ep.season_number == season_filter]
         if not episodes:
             print(f"No episodes found for season {season_filter}.")

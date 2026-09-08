@@ -96,13 +96,45 @@ python main.py --url "https://www.crunchyroll.com/watch/..." --audio-lang "ja-JP
 # Download all available dubs and subs
 python main.py --url "https://www.crunchyroll.com/watch/..." --audio-lang all --subs-lang all
 
-# Download a season or full series
+# List all available seasons and story arcs
+python main.py --url "https://www.crunchyroll.com/series/..." --list-seasons
+
+# Download a specific season or story arc
 python main.py --url "https://www.crunchyroll.com/series/..." --season 1
 python main.py --url "https://www.crunchyroll.com/series/..."
 
 # Batch download from a file (one URL per line)
 python main.py --file urls.txt
 ```
+
+### Listing & Picking Seasons (No More Guessing)
+
+Crunchyroll numbers seasons pretty weirdly behind the scenes — for example, *Demon Slayer's Mugen Train Arc* is actually listed as Season 4, and *Attack on Titan's OADs* are listed under Season 66.
+
+Instead of guessing what number Crunchyroll gave to an arc or special, just use `--list-seasons` (or `-ls`):
+
+```bash
+python main.py --list-seasons https://www.crunchyroll.com/series/GY5P48XEY
+```
+
+You'll instantly get a clean breakdown with the real arc names and the exact `--season` flag to use:
+
+```text
+Seasons available for 'Demon Slayer: Kimetsu no Yaiba':
+===================================================================
+  --season 4   | Mugen Train Arc
+  --season 5   | Entertainment District Arc
+  --season 6   | Swordsmith Village Arc
+  --season 7   | Hashira Training Arc
+===================================================================
+```
+
+Then just download the arc you want:
+```bash
+python main.py https://www.crunchyroll.com/series/GY5P48XEY --season 4
+```
+
+*(You don't even need to type `--url`, you can pass the link directly! And yes, specials and movies listed under `--season 0` work too).*
 
 Run `python main.py --help` to see all available flags.
 
