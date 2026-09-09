@@ -6,6 +6,7 @@ import sys
 import threading
 import time
 import webbrowser
+from typing import Optional
 from urllib.parse import urlparse
 
 # Ensure pywebview uses PyQt6 on Linux when available
@@ -217,12 +218,34 @@ def _run_download(items, vq, aq, al, sl, force_download=False):
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *_): pass
 
+    def _get_cors_origin(self) -> Optional[str]:
+        origin = self.headers.get("Origin")
+        if not origin:
+            return None
+        parsed = urlparse(origin)
+        if parsed.hostname in ("127.0.0.1", "localhost", "::1") or origin == "null":
+            return origin
+        return None
+
+    def _validate_origin(self) -> bool:
+        origin = self.headers.get("Origin")
+        if origin:
+            parsed = urlparse(origin)
+            return parsed.hostname in ("127.0.0.1", "localhost", "::1") or origin == "null"
+        referer = self.headers.get("Referer")
+        if referer:
+            parsed = urlparse(referer)
+            return parsed.hostname in ("127.0.0.1", "localhost", "::1")
+        return True
+
     def _json(self, data, status=200):
         body = json.dumps(data).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
+        cors_origin = self._get_cors_origin()
+        if cors_origin:
+            self.send_header("Access-Control-Allow-Origin", cors_origin)
         self.send_header("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0")
         self.send_header("Pragma", "no-cache")
         self.send_header("Expires", "0")
@@ -230,10 +253,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_OPTIONS(self):
-        self.send_response(204)
-        for h, v in [("Access-Control-Allow-Origin","*"),("Access-Control-Allow-Methods","GET,POST,OPTIONS"),("Access-Control-Allow-Headers","Content-Type")]:
-            self.send_header(h, v)
-        self.end_headers()
+        cors_origin = self._get_cors_origin()
+        if cors_origin:
+            self.send_response(204)
+            for h, v in [
+                ("Access-Control-Allow-Origin", cors_origin),
+                ("Access-Control-Allow-Methods", "GET,POST,OPTIONS"),
+                ("Access-Control-Allow-Headers", "Content-Type"),
+            ]:
+                self.send_header(h, v)
+            self.end_headers()
+        else:
+            self.send_response(403)
+            self.end_headers()
 
     def do_GET(self):
         path = urlparse(self.path).path
@@ -292,6 +324,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_error(500, "Internal server error")
 
     def do_POST(self):
+        if not self._validate_origin():
+            self._json({"success": False, "error": "Forbidden: invalid origin"}, 403)
+            return
+
         path = urlparse(self.path).path
         n = int(self.headers.get("Content-Length", 0))
         raw = self.rfile.read(n) if n else b"{}"

@@ -50,13 +50,18 @@ class StreamValidator:
             file_path,
         ]
 
-        res = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
+        try:
+            res = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                stdin=subprocess.DEVNULL,
+                timeout=60,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(f"ffprobe execution timed out probing: {file_path}") from exc
         if res.returncode != 0:
             raise RuntimeError(f"ffprobe execution failed with code {res.returncode}: {res.stderr.strip()}")
 

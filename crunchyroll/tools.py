@@ -145,7 +145,10 @@ def run_n_m3u8dl_re(
     logger.info("[n_m3u8dl-re] Command: %s", " ".join(cmd))
     print(f"[n_m3u8dl-re] Downloading: {base_name}", flush=True)
 
-    result = subprocess.run(cmd, cwd=output_dir)
+    try:
+        result = subprocess.run(cmd, cwd=output_dir, stdin=subprocess.DEVNULL, timeout=1800)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"N_m3u8DL-RE timed out after 30 minutes for '{base_name}'") from exc
 
     # If it failed and we had specific quality filters, retry with best available fallback
     if result.returncode != 0 and (video_quality or audio_quality):
@@ -156,7 +159,10 @@ def run_n_m3u8dl_re(
                 fallback_cmd[idx + 1] = "for=best"
             elif arg == "--select-audio" and idx + 1 < len(fallback_cmd):
                 fallback_cmd[idx + 1] = "for=best"
-        result = subprocess.run(fallback_cmd, cwd=output_dir)
+        try:
+            result = subprocess.run(fallback_cmd, cwd=output_dir, stdin=subprocess.DEVNULL, timeout=1800)
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(f"N_m3u8DL-RE fallback timed out after 30 minutes for '{base_name}'") from exc
 
     if result.returncode != 0:
         raise RuntimeError(
@@ -234,8 +240,10 @@ def decrypt_with_mp4decrypt(
         cmd += ["--key", f"{kid.hex()}:{key.hex()}"]
     cmd += [encrypted_file, output_file]
 
-    logger.info("[mp4decrypt] %s", " ".join(cmd))
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=300)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"mp4decrypt timed out after 5 minutes for {encrypted_file}") from exc
     if r.returncode != 0:
         raise RuntimeError(
             f"mp4decrypt failed (exit {r.returncode}):\n"

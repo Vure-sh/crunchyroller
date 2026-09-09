@@ -82,6 +82,8 @@ def _decrypt_with_ffmpeg(input_file: str, key_hex: str, output_file: str) -> boo
             text=True,
             encoding="utf-8",
             errors="replace",
+            stdin=subprocess.DEVNULL,
+            timeout=300,
         )
         if res.returncode == 0 and os.path.exists(output_file) and os.path.getsize(output_file) > 0:
             return True

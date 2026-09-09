@@ -131,7 +131,21 @@ def merge_everything(
         output_file,
     ])
 
-    result = subprocess.run(args, capture_output=True, text=True)
+    try:
+        result = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            timeout=600,
+        )
+    except subprocess.TimeoutExpired as exc:
+        if os.path.exists(output_file):
+            try:
+                os.remove(output_file)
+            except OSError:
+                pass
+        raise RuntimeError("ffmpeg timed out after 10 minutes while muxing") from exc
     if result.returncode != 0:
         if os.path.exists(output_file):
             try:

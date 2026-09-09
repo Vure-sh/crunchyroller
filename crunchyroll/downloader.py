@@ -819,6 +819,10 @@ def download_episode(
         )
     )
 
+    video_file: Optional[str] = None
+    audio_tracks: List[MediaTrack] = []
+    sub_tracks: List[MediaTrack] = []
+
     try:
         print("Requesting playback stream...")
         first_playback_id = versions[0].guid or base_content_id
@@ -1195,6 +1199,23 @@ def download_episode(
         for content_id, token in active_streams.items():
             if content_id and token:
                 delete_stream(client, content_id, token)
+        if video_file and os.path.exists(video_file):
+            try:
+                os.remove(video_file)
+            except OSError:
+                pass
+        for track in audio_tracks:
+            if hasattr(track, "file") and track.file and os.path.exists(track.file):
+                try:
+                    os.remove(track.file)
+                except OSError:
+                    pass
+        for track in sub_tracks:
+            if hasattr(track, "file") and track.file and os.path.exists(track.file):
+                try:
+                    os.remove(track.file)
+                except OSError:
+                    pass
 
 
 def download_season(
@@ -1483,6 +1504,8 @@ def _download_episode_n_m3u8dl_re(
         )
     )
 
+    temp_dirs: List[str] = []
+
     try:
         first_playback_id = versions[0].guid or base_content_id
 
@@ -1630,6 +1653,7 @@ def _download_episode_n_m3u8dl_re(
 
         # Temp dir for N_m3u8DL-RE output
         primary_tmp = tempfile.mkdtemp(prefix="crunrun_primary_")
+        temp_dirs.append(primary_tmp)
         try:
             print("Downloading video + primary audio with N_m3u8DL-RE...")
             result = run_n_m3u8dl_re(
@@ -1695,6 +1719,7 @@ def _download_episode_n_m3u8dl_re(
                 continue
 
             dub_tmp = tempfile.mkdtemp(prefix=f"crunrun_dub{i}_")
+            temp_dirs.append(dub_tmp)
             dub_base = f"{base_name}_dub{i}"
             try:
                 print(f"Downloading {track_title(version.audio_locale)} audio with N_m3u8DL-RE...")
@@ -1783,7 +1808,14 @@ def _download_episode_n_m3u8dl_re(
         for content_id, token in active_streams.items():
             if content_id and token:
                 delete_stream(client, content_id, token)
-        # Clean up temp dirs from N_m3u8DL-RE runs (they live in system temp)
-        # Individual dub temp dirs that failed are already cleaned above
+        # Clean up temp dirs from N_m3u8DL-RE runs
+        for td in temp_dirs:
+            _cleanup_temp_dir(td)
+        for st in sub_tracks:
+            if hasattr(st, "file") and st.file and os.path.exists(st.file):
+                try:
+                    os.remove(st.file)
+                except OSError:
+                    pass
 
 
