@@ -26,6 +26,7 @@ from .mpd import (
     get_available_cdn_mirrors,
     get_base_url,
     get_kids,
+    get_manifest_subtitles,
     get_pssh,
     parse_dash_duration,
     parse_manifest,
@@ -543,14 +544,66 @@ def download_parts_optimized(
 
 
 def download_subs(url: str, pool: Optional[SessionPool] = None) -> str:
-    """grab subs and stash in a temp file"""
+    """grab subs and stash in a temp file, validating payload format"""
     session_pool = pool or _get_global_session_pool()
     content = session_pool.download_segment(url)
-    tmp_file = tempfile.NamedTemporaryFile(suffix=".ass", delete=False)
+    if not content or content.strip().startswith(b"<?xml") or b"<Error>" in content:
+        raise RuntimeError(f"Invalid subtitle response from {session_pool._safe_url(url)}")
+    suffix = ".vtt" if b"WEBVTT" in content[:40] else ".ass"
+    tmp_file = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
     tmp_path = tmp_file.name
     tmp_file.write(content)
     tmp_file.close()
     return tmp_path
+
+
+def _try_fallback_subtitles(
+    client: CrunchyrollHttpClient,
+    info: EpisodeInfo,
+    locale: str,
+    pool: Optional[SessionPool] = None,
+    exclude_id: str = "",
+) -> Optional[str]:
+    """Attempt to find and download subtitles for locale from candidate dub versions or MPD manifests."""
+    candidate_versions = [
+        v for v in (getattr(info.episode_metadata, "versions", []) or [])
+        if v.guid and v.guid != exclude_id
+    ]
+    target_clean = locale.strip().lower()
+    # Prioritize candidate versions matching requested locale (e.g. en-US dub for English subtitles)
+    candidate_versions.sort(
+        key=lambda v: 0 if (getattr(v, "audio_locale", "") or "").lower() == target_clean else 1
+    )
+
+    for version in candidate_versions:
+        try:
+            v_ep = get_episode(client, version.guid, debug=False, playback_id=version.guid, queue=1)
+            # 1. Check v_ep.subtitles
+            target_url = None
+            for s_loc, s_obj in v_ep.subtitles.items():
+                if s_loc.strip().lower() == target_clean and getattr(s_obj, "url", None):
+                    target_url = s_obj.url
+                    break
+            if target_url:
+                try:
+                    return download_subs(target_url, pool=pool)
+                except Exception:
+                    pass
+            # 2. Check v_ep MPD manifest for embedded text/vtt tracks
+            if v_ep.manifest_url:
+                try:
+                    manifest = parse_manifest(client, v_ep.manifest_url)
+                    manifest_subs = get_manifest_subtitles(manifest)
+                    for m_loc, m_url in manifest_subs.items():
+                        m_clean = m_loc.strip().lower()
+                        if m_clean == target_clean or (target_clean.startswith("en") and m_clean.startswith("en")):
+                            return download_subs(m_url, pool=pool)
+                except Exception:
+                    pass
+        except Exception:
+            continue
+    return None
+
 
 
 def _is_all_tracks(values: List[str]) -> bool:
@@ -654,11 +707,15 @@ def _prepare_media_track(
         mime = aset.attrib.get("mimeType", "")
         ctype = aset.attrib.get("contentType", "")
         reps = [r for r in aset if _clean_tag(r.tag) == "Representation"]
-        is_video = "video" in mime or "video" in ctype or any(
-            "height" in r.attrib for r in reps
+        is_video = (
+            "video" in mime
+            or "video" in ctype
+            or any("video" in r.attrib.get("mimeType", "") or "video" in r.attrib.get("contentType", "") or "height" in r.attrib for r in reps)
         )
-        is_audio = "audio" in mime or "audio" in ctype or any(
-            "audio" in r.attrib.get("id", "") for r in reps
+        is_audio = (
+            "audio" in mime
+            or "audio" in ctype
+            or any("audio" in r.attrib.get("mimeType", "") or "audio" in r.attrib.get("contentType", "") or "audio" in r.attrib.get("id", "") or "mp4a" in r.attrib.get("codecs", "") for r in reps)
         )
         if is_video and video_set is None:
             video_set = aset
@@ -941,13 +998,31 @@ def download_episode(
         sub_tracks: List[MediaTrack] = []
         for loc in subs_langs:
             subtitle = subtitle_map.get(loc.lower())
+            actual_locale = getattr(subtitle, "language", None) if subtitle else loc
+            sub_file = None
             if subtitle and subtitle.url:
-                actual_locale = getattr(subtitle, "language", None) or loc
                 print(f"Downloading subtitles for {track_title(actual_locale)}...")
-                sub_file = download_subs(subtitle.url, pool=shared_pool)
+                try:
+                    sub_file = download_subs(subtitle.url, pool=shared_pool)
+                except Exception as exc:
+                    print(
+                        f"Warning: Primary subtitle download failed for {track_title(actual_locale)} ({exc}). "
+                        "Checking fallback sources..."
+                    )
+                    sub_file = _try_fallback_subtitles(
+                        client, info, actual_locale, pool=shared_pool, exclude_id=first_playback_id
+                    )
+            elif not subtitle or not subtitle.url:
+                sub_file = _try_fallback_subtitles(
+                    client, info, actual_locale, pool=shared_pool, exclude_id=first_playback_id
+                )
+
+            if sub_file:
                 sub_tracks.append(
                     MediaTrack(file=sub_file, locale=actual_locale, is_default=len(sub_tracks) == 0)
                 )
+            else:
+                print(f"Warning: Subtitle track unavailable for {track_title(actual_locale)}. Continuing download without it.")
 
         if sub_tracks:
             print(
@@ -1641,13 +1716,31 @@ def _download_episode_n_m3u8dl_re(
         sub_tracks: List[MediaTrack] = []
         for loc in subs_langs:
             subtitle = subtitle_map.get(loc.lower())
+            actual_locale = getattr(subtitle, "language", None) if subtitle else loc
+            sub_file = None
             if subtitle and subtitle.url:
-                actual_locale = getattr(subtitle, "language", None) or loc
                 print(f"Downloading subtitles for {track_title(actual_locale)}...")
-                sub_file = download_subs(subtitle.url, pool=shared_pool)
+                try:
+                    sub_file = download_subs(subtitle.url, pool=shared_pool)
+                except Exception as exc:
+                    print(
+                        f"Warning: Primary subtitle download failed for {track_title(actual_locale)} ({exc}). "
+                        "Checking fallback sources..."
+                    )
+                    sub_file = _try_fallback_subtitles(
+                        client, info, actual_locale, pool=shared_pool, exclude_id=first_playback_id
+                    )
+            elif not subtitle or not subtitle.url:
+                sub_file = _try_fallback_subtitles(
+                    client, info, actual_locale, pool=shared_pool, exclude_id=first_playback_id
+                )
+
+            if sub_file:
                 sub_tracks.append(
                     MediaTrack(file=sub_file, locale=actual_locale, is_default=len(sub_tracks) == 0)
                 )
+            else:
+                print(f"Warning: Subtitle track unavailable for {track_title(actual_locale)}. Continuing download without it.")
 
         if sub_tracks:
             print(
