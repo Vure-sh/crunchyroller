@@ -17,8 +17,17 @@
 
 ---
 
+### 🍿 Plex & Jellyfin Ready Out-of-the-Box
+
+Downloads automatically sort into standard `Series/Season 01/Series - S01E01 - Title.mkv` folders so home media servers like Jellyfin and Plex instantly match official posters, episode guides, and multi-track audio without manual renaming:
+
+<img width="1851" height="1034" alt="Jellyfin Library Showcase" src="https://github.com/user-attachments/assets/c2b945a5-ce6b-4f4c-9bb9-abfff0db4bee" />
+
+---
+
 ## Features
 
+- **Plex & Jellyfin Ready:** Automatically creates `Season XX` subfolders with standard scene naming (`Series - S01E01 - Title.mkv`), ensuring 100% instant metadata and poster matching in home media servers.
 - **Uncapped download speeds:** Downloads aren't throttled at all — it maxes out whatever your internet connection can handle (can reach 60–70+ MB/s on fast connections).
 - **Clean Desktop GUI & CLI:** Run it as a sleek desktop app, in your web browser, or straight from the command line.
 - **Multiple audio dubs & soft subtitles:** Pick Japanese, English, or download all available dubs and subs in one go, muxed cleanly into a single MKV.
