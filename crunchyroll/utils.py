@@ -72,10 +72,15 @@ def sanitize_filename(s: str) -> str:
     # replace unicode dashes and quotes with clean ascii equivalents
     s = s.replace("—", "-").replace("–", "-").replace("“", '"').replace("”", '"').replace("’", "'").replace("‘", "'")
 
-    # swap illegal chars with underscores
-    res = re.sub(r'[\\/:*?"<>|\'"`]', "_", s)
-    # shrink multiple underscores into one
-    res = re.sub(r"_{2,}", "_", res)
+    # Replace colons with clean hyphen separators for Plex and Jellyfin title matching
+    s = s.replace(":", " - ")
 
-    return res.strip(" ._") or "Unknown"
+    # swap illegal chars with underscores
+    res = re.sub(r'[\\/*?"<>|\'"`]', "_", s)
+    # clean multiple whitespace, underscores, and hyphens
+    res = re.sub(r"\s+", " ", res)
+    res = re.sub(r"_{2,}", "_", res)
+    res = re.sub(r"-\s*-+", "-", res)
+
+    return res.strip(" ._-") or "Unknown"
 

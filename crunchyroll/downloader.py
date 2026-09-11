@@ -782,14 +782,32 @@ def download_episode(
         f"subtitles=[{', '.join(track_title(locale) for locale in subs_langs) or 'all available'}]"
     )
 
-    output_dir = sanitize_filename(info.episode_metadata.series_title)
+    series_title = sanitize_filename(info.episode_metadata.series_title or "Unknown")
+    ep_title = sanitize_filename(info.title or "Unknown")
+    season_num = info.episode_metadata.season_number
+    ep_num = info.episode_metadata.episode_number
+
+    # Plex and Jellyfin standard layout: Series / Season XX / Series - SXXEYY - Title.mkv
+    season_folder = f"Season {season_num:02d}"
+    output_dir = os.path.join(series_title, season_folder)
     os.makedirs(output_dir, exist_ok=True)
-    filename = (
-        f"{sanitize_filename(info.episode_metadata.series_title)} "
-        f"S{info.episode_metadata.season_number:02d}E{info.episode_metadata.episode_number:02d} - "
-        f"{sanitize_filename(info.title)} [{video_quality}].mkv"
-    )
+    filename = f"{series_title} - S{season_num:02d}E{ep_num:02d} - {ep_title} [{video_quality}].mkv"
     output_filename = os.path.join(output_dir, filename)
+
+    # Legacy file detection and seamless migration into Season subfolder
+    legacy_candidates = [
+        os.path.join(series_title, f"{series_title} S{season_num:02d}E{ep_num:02d} - {ep_title} [{video_quality}].mkv"),
+        os.path.join(series_title, f"{series_title} - S{season_num:02d}E{ep_num:02d} - {ep_title} [{video_quality}].mkv"),
+        os.path.join(output_dir, f"{series_title} S{season_num:02d}E{ep_num:02d} - {ep_title} [{video_quality}].mkv"),
+    ]
+    for leg in legacy_candidates:
+        if os.path.exists(leg) and not os.path.exists(output_filename):
+            try:
+                shutil.move(leg, output_filename)
+                break
+            except Exception:
+                output_filename = leg
+                break
 
     # Check completed output before making playback/subtitle requests. This
     # avoids network work, and avoids hanging on an episode already downloaded.
@@ -1474,18 +1492,32 @@ def _download_episode_n_m3u8dl_re(
             )
 
     # ------------------------------------------------------------------
-    # 2. Compute output file path
+    # 2. Compute output file path (Plex & Jellyfin compliant)
     # ------------------------------------------------------------------
     series_title = sanitize_filename(info.episode_metadata.series_title or "Unknown")
     ep_title = sanitize_filename(info.title or "Unknown")
     season_num = info.episode_metadata.season_number
     ep_num = info.episode_metadata.episode_number
-    output_dir_base = os.path.join(".", series_title)
-    os.makedirs(output_dir_base, exist_ok=True)
-    output_filename = os.path.join(
-        output_dir_base,
-        f"{series_title} S{season_num:02d}E{ep_num:02d} - {ep_title} [{video_quality}].mkv",
-    )
+    season_folder = f"Season {season_num:02d}"
+    output_dir = os.path.join(".", series_title, season_folder)
+    os.makedirs(output_dir, exist_ok=True)
+    filename = f"{series_title} - S{season_num:02d}E{ep_num:02d} - {ep_title} [{video_quality}].mkv"
+    output_filename = os.path.join(output_dir, filename)
+
+    # Legacy file detection and seamless migration into Season subfolder
+    legacy_candidates = [
+        os.path.join(".", series_title, f"{series_title} S{season_num:02d}E{ep_num:02d} - {ep_title} [{video_quality}].mkv"),
+        os.path.join(".", series_title, f"{series_title} - S{season_num:02d}E{ep_num:02d} - {ep_title} [{video_quality}].mkv"),
+        os.path.join(output_dir, f"{series_title} S{season_num:02d}E{ep_num:02d} - {ep_title} [{video_quality}].mkv"),
+    ]
+    for leg in legacy_candidates:
+        if os.path.exists(leg) and not os.path.exists(output_filename):
+            try:
+                shutil.move(leg, output_filename)
+                break
+            except Exception:
+                output_filename = leg
+                break
 
     if not force_download and os.path.exists(output_filename):
         print(f"Skipping (already downloaded): {output_filename}")
