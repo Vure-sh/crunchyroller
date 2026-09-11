@@ -17,7 +17,7 @@
 
 ---
 
-### 🍿 Plex & Jellyfin Ready Out-of-the-Box
+### Plex & Jellyfin Ready Out-of-the-Box
 
 Downloads automatically sort into standard `Series/Season 01/Series - S01E01 - Title.mkv` folders so home media servers like Jellyfin and Plex instantly match official posters, episode guides, and multi-track audio without manual renaming:
 
