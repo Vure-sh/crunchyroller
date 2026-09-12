@@ -36,6 +36,7 @@ class EpisodeInfo:
 class Subtitle:
     language: str
     url: str
+    is_cc: bool = False
 
 
 @dataclass
@@ -76,3 +77,4 @@ class MediaTrack:
     file: str
     locale: str
     is_default: bool = False
+    is_cc: bool = False

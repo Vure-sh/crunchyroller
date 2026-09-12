@@ -42,7 +42,7 @@ from .types import (
     PlaybackStream,
     SeasonEpisode,
 )
-from .utils import sanitize_filename, track_title
+from .utils import locale_base, sanitize_filename, track_title
 
 MAX_WORKERS = 16
 MAX_RETRIES = 5
@@ -842,6 +842,15 @@ def download_episode(
             subs_langs = _unique_locales(list(first_episode.subtitles.keys()))
         else:
             subs_langs = _unique_locales(subs_langs)
+            # Auto-include CC variant when base locale is requested and available
+            # e.g. requesting 'en-US' also pulls 'en-US-cc' if present
+            extra_cc = [
+                f"{loc}-cc"
+                for loc in subs_langs
+                if not loc.endswith("-cc") and f"{loc}-cc".lower() in subtitle_map
+            ]
+            if extra_cc:
+                subs_langs = _unique_locales(subs_langs + extra_cc)
 
         available_subtitles = list(subtitle_map)
         missing_subtitles = [
@@ -861,7 +870,9 @@ def download_episode(
         sub_tracks: List[MediaTrack] = []
         for loc in subs_langs:
             subtitle = subtitle_map.get(loc.lower())
-            actual_locale = getattr(subtitle, "language", None) if subtitle else loc
+            is_cc = getattr(subtitle, "is_cc", False) or loc.lower().endswith("-cc")
+            raw_lang = getattr(subtitle, "language", None) or loc
+            actual_locale = f"{locale_base(raw_lang)}-cc" if is_cc else raw_lang
             sub_file = None
             if subtitle and subtitle.url:
                 print(f"Downloading subtitles for {track_title(actual_locale)}...")
@@ -882,7 +893,12 @@ def download_episode(
 
             if sub_file:
                 sub_tracks.append(
-                    MediaTrack(file=sub_file, locale=actual_locale, is_default=len(sub_tracks) == 0)
+                    MediaTrack(
+                        file=sub_file,
+                        locale=actual_locale,
+                        is_default=len(sub_tracks) == 0,
+                        is_cc=is_cc,
+                    )
                 )
             else:
                 print(f"Warning: Subtitle track unavailable for {track_title(actual_locale)}. Continuing download without it.")
@@ -1545,6 +1561,13 @@ def _download_episode_n_m3u8dl_re(
             subs_langs = _unique_locales(list(first_episode.subtitles.keys()))
         else:
             subs_langs = _unique_locales(subs_langs)
+            extra_cc = [
+                f"{loc}-cc"
+                for loc in subs_langs
+                if not loc.endswith("-cc") and f"{loc}-cc".lower() in subtitle_map
+            ]
+            if extra_cc:
+                subs_langs = _unique_locales(subs_langs + extra_cc)
 
         available_subtitles = list(subtitle_map)
         missing_subtitles = [
@@ -1567,7 +1590,9 @@ def _download_episode_n_m3u8dl_re(
         sub_tracks: List[MediaTrack] = []
         for loc in subs_langs:
             subtitle = subtitle_map.get(loc.lower())
-            actual_locale = getattr(subtitle, "language", None) if subtitle else loc
+            is_cc = getattr(subtitle, "is_cc", False) or loc.lower().endswith("-cc")
+            raw_lang = getattr(subtitle, "language", None) or loc
+            actual_locale = f"{locale_base(raw_lang)}-cc" if is_cc else raw_lang
             sub_file = None
             if subtitle and subtitle.url:
                 print(f"Downloading subtitles for {track_title(actual_locale)}...")
@@ -1588,7 +1613,12 @@ def _download_episode_n_m3u8dl_re(
 
             if sub_file:
                 sub_tracks.append(
-                    MediaTrack(file=sub_file, locale=actual_locale, is_default=len(sub_tracks) == 0)
+                    MediaTrack(
+                        file=sub_file,
+                        locale=actual_locale,
+                        is_default=len(sub_tracks) == 0,
+                        is_cc=is_cc,
+                    )
                 )
             else:
                 print(f"Warning: Subtitle track unavailable for {track_title(actual_locale)}. Continuing download without it.")

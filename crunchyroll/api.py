@@ -93,11 +93,14 @@ def _parse_playback_response(data: Dict[str, Any], debug: bool = False) -> Playb
         print("\n--- DEBUG PLAYBACK STREAM JSON ---")
         print(json.dumps(data, indent=2))
 
-    subtitles_raw = data.get("subtitles", {})
-    subtitles = {}
-    if isinstance(subtitles_raw, dict):
-        for lang, s_info in subtitles_raw.items():
-            if isinstance(s_info, dict):
+    subtitles: Dict[str, Subtitle] = {}
+
+    def _parse_subtitle_entries(raw: Any, is_cc: bool) -> None:
+        """Parse a subtitles or captions dict/list from the API into `subtitles`."""
+        if isinstance(raw, dict):
+            for lang, s_info in raw.items():
+                if not isinstance(s_info, dict):
+                    continue
                 subtitle_url = str(s_info.get("url", "") or "").strip()
                 parsed_url = urlparse(subtitle_url)
                 if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
@@ -108,28 +111,39 @@ def _parse_playback_response(data: Dict[str, Any], debug: bool = False) -> Playb
                 locale = _subtitle_locale(lang, resolved_lang)
                 if not locale:
                     continue
-                subtitles[locale] = Subtitle(
+                is_cc_entry = is_cc or bool(s_info.get("closed_caption") or s_info.get("closedCaption"))
+                key = f"{locale}-cc" if is_cc_entry else locale
+                subtitles[key] = Subtitle(
                     language=str(resolved_lang or locale),
                     url=subtitle_url,
+                    is_cc=is_cc_entry,
                 )
-    elif isinstance(subtitles_raw, list):
-        for s_info in subtitles_raw:
-            if not isinstance(s_info, dict):
-                continue
-            subtitle_url = str(s_info.get("url", "") or "").strip()
-            parsed_url = urlparse(subtitle_url)
-            if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
-                continue
-            raw_lang = s_info.get("language")
-            locale = _subtitle_locale(
-                s_info.get("locale") or s_info.get("lang") or raw_lang,
-                raw_lang,
-            )
-            if locale:
-                subtitles[locale] = Subtitle(
-                    language=str(raw_lang or locale),
-                    url=subtitle_url,
+        elif isinstance(raw, list):
+            for s_info in raw:
+                if not isinstance(s_info, dict):
+                    continue
+                subtitle_url = str(s_info.get("url", "") or "").strip()
+                parsed_url = urlparse(subtitle_url)
+                if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+                    continue
+                raw_lang = s_info.get("language")
+                locale = _subtitle_locale(
+                    s_info.get("locale") or s_info.get("lang") or raw_lang,
+                    raw_lang,
                 )
+                if locale:
+                    is_cc_entry = is_cc or bool(s_info.get("closed_caption") or s_info.get("closedCaption"))
+                    key = f"{locale}-cc" if is_cc_entry else locale
+                    subtitles[key] = Subtitle(
+                        language=str(raw_lang or locale),
+                        url=subtitle_url,
+                        is_cc=is_cc_entry,
+                    )
+
+    # Regular subtitle tracks (usually .ass with full styling)
+    _parse_subtitle_entries(data.get("subtitles", {}), is_cc=False)
+    # Closed-caption tracks (usually .vtt, for hearing-impaired viewers)
+    _parse_subtitle_entries(data.get("captions", {}), is_cc=True)
 
     token = str(data.get("token") or data.get("playbackToken") or data.get("playback_token") or "")
     return PlaybackStream(manifest_url=manifest_url, subtitles=subtitles, token=token)

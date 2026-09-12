@@ -8,7 +8,7 @@ import sys
 from typing import List, Optional
 
 from .types import EpisodeInfo, MediaTrack
-from .utils import LANGUAGE_CODES, track_title
+from .utils import LANGUAGE_CODES, locale_base, track_title
 
 logger = logging.getLogger("crunchyroll.merger")
 
@@ -93,8 +93,9 @@ def merge_everything(
 
     # Subtitle metadata
     for j, sub in enumerate(sub_tracks):
-        lang_code = LANGUAGE_CODES.get(sub.locale, sub.locale)
-        title = track_title(sub.locale)
+        lang_code = LANGUAGE_CODES.get(locale_base(sub.locale), locale_base(sub.locale))
+        base_title = track_title(locale_base(sub.locale))
+        title = f"{base_title} (CC)" if sub.is_cc else track_title(sub.locale)
         args.extend([
             f"-metadata:s:s:{j}", f"language={lang_code}",
             f"-metadata:s:s:{j}", f"title={title}",
@@ -114,8 +115,14 @@ def merge_everything(
         (i for i, track in enumerate(sub_tracks) if track.is_default),
         0 if sub_tracks else -1,
     )
-    for j in range(len(sub_tracks)):
-        disposition = "default" if j == default_subtitle_index else "0"
+    for j, sub in enumerate(sub_tracks):
+        parts = ["default"] if j == default_subtitle_index else ["0"]
+        if sub.is_cc:
+            parts = [p for p in parts if p != "0"]  # drop the "0" placeholder
+            parts.append("hearing_impaired")
+            if not parts:
+                parts = ["hearing_impaired"]
+        disposition = "+".join(parts) if parts else "0"
         args.extend([f"-disposition:s:{j}", disposition])
 
     # Global metadata tags (fixed season_number and episode_number)

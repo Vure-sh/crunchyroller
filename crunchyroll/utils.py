@@ -61,7 +61,16 @@ LANGUAGE_CODES = {
 
 def track_title(locale: str) -> str:
     """get the language name from the locale code"""
+    if locale.endswith("-cc"):
+        base = locale[:-3]  # strip '-cc'
+        base_name = LANGUAGE_NAMES.get(base, base)
+        return f"{base_name} (CC)"
     return LANGUAGE_NAMES.get(locale, locale)
+
+
+def locale_base(locale: str) -> str:
+    """Return the base locale, stripping any '-cc' suffix."""
+    return locale[:-3] if locale.endswith("-cc") else locale
 
 
 def sanitize_filename(s: str) -> str:
