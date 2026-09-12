@@ -33,6 +33,7 @@ from .mpd import (
 )
 from .session_pool import ConcurrencyConfig, SessionPool
 from .stream_assembler import StreamAssembler
+from .tools import run_n_m3u8dl_re
 from .types import (
     DubVersion,
     EpisodeInfo,
@@ -116,34 +117,6 @@ def _invoke_progress_cb(
             except Exception:
                 pass
 
-
-def download_part(
-    url: str,
-    save_path: Optional[str] = None,
-    max_retries: int = MAX_RETRIES,
-    pool: Optional[SessionPool] = None,
-) -> Union[bytes, int]:
-    """grab a segment directly to disk or memory. retry if cr gets mad."""
-    session_pool = pool or _get_global_session_pool()
-
-    headers = {
-        "Origin": "https://static.crunchyroll.com",
-        "Referer": "https://static.crunchyroll.com/",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
-    }
-
-    if save_path:
-        written = 0
-        with open(save_path, "wb") as f:
-            for chunk in session_pool.download_segment_stream(url, headers=headers):
-                f.write(chunk)
-                written += len(chunk)
-        return written
-    else:
-        return session_pool.download_segment(url, headers=headers)
-
-
-# decrypt_mp4 and decrypt_stream are imported from crunchyroll.decryptor
 
 
 def download_parts(
@@ -431,116 +404,6 @@ def download_parts(
         if own_pool and pool:
             pool.close()
 
-
-def download_parts_optimized(
-    base_url: str,
-    rep_id: str,
-    timeline: List[int],
-    keys: Optional[Dict[bytes, bytes]],
-    output_filename: Optional[str] = None,
-    progress_callback: Optional[Callable[[int, int, float], None]] = None,
-    concurrency_config: Optional[ConcurrencyConfig] = None,
-    media_pattern: str = "$RepresentationID$_segment_$Number$.mp4",
-    init_pattern: str = "$RepresentationID$_init.mp4",
-) -> str:
-    """Optimized download pipeline API interface matching PROJECT.md interface contract."""
-    cfg = concurrency_config or ConcurrencyConfig(
-        min_workers=4,
-        max_workers=10,
-        initial_workers=8,
-        aimd_enabled=True,
-        hedging_enabled=False,
-    )
-    pool = SessionPool(config=cfg)
-
-    target_raw = output_filename + ".raw.mp4" if output_filename else tempfile.NamedTemporaryFile(suffix=".raw.mp4", delete=False).name
-    target_out = output_filename or tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
-
-    total = len(timeline)
-    try:
-        # Step 1: Download init segment
-        init_url = build_url(base_url, rep_id, init_pattern)
-        init_data = pool.download_segment(init_url)
-
-        # Step 2: StreamAssembler (<32MB RAM)
-        assembler = StreamAssembler(
-            output_path=target_raw,
-            total_segments=total,
-            max_in_flight_mb=32,
-            start_index=1,
-        )
-        assembler.write_init(init_data)
-
-        # Step 3: Concurrent download
-        job_queue: queue.Queue = queue.Queue()
-        for i, item in enumerate(timeline, start=1):
-            seg_url = build_url(base_url, rep_id, media_pattern, item)
-            job_queue.put((i, seg_url))
-
-        completed_count = 0
-        downloaded_bytes = 0
-        start_time = time.time()
-        progress_lock = threading.Lock()
-        worker_error: List[Exception] = []
-
-        def _worker():
-            nonlocal completed_count, downloaded_bytes
-            while not job_queue.empty() and not worker_error:
-                try:
-                    idx, url = job_queue.get_nowait()
-                except queue.Empty:
-                    break
-
-                try:
-                    seg_data = pool.download_segment(url)
-                    assembler.add_segment(idx, seg_data)
-
-                    with progress_lock:
-                        completed_count += 1
-                        downloaded_bytes += len(seg_data)
-                        cur_completed = completed_count
-                        cur_bytes = downloaded_bytes
-
-                    elapsed = time.time() - start_time
-                    speed_mb = (cur_bytes / elapsed / (1024 * 1024)) if elapsed > 0 else 0.0
-
-                    if progress_callback:
-                        progress_callback(cur_completed, total, speed_mb)
-                except Exception as ex:
-                    with progress_lock:
-                        worker_error.append(ex)
-                    print(
-                        f"\nDownload failed for optimized segment {idx}/{total}: "
-                        f"{type(ex).__name__}: {ex}"
-                    )
-                    assembler.abort(ex)
-                    break
-                finally:
-                    job_queue.task_done()
-
-        num_workers = min(total, max(cfg.min_workers, pool.get_recommended_workers()))
-        threads = [threading.Thread(target=_worker, daemon=True) for _ in range(num_workers)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-
-        if worker_error:
-            raise worker_error[0]
-
-        assembler.finish()
-
-        # Step 4: Decrypt
-        decrypt_mp4(target_raw, keys or {}, target_out)
-        if os.path.exists(target_raw):
-            try:
-                os.remove(target_raw)
-            except Exception:
-                pass
-
-        return target_out
-    finally:
-        pool.close()
 
 
 def download_subs(url: str, pool: Optional[SessionPool] = None) -> str:
@@ -1455,9 +1318,7 @@ def download_series(
             force_download=force_download,
             server_index=server_index,
         )
-        print()
-from .tools import run_n_m3u8dl_re
-from .mpd import get_pssh
+
 def _get_keys_for_stream(
     client: CrunchyrollHttpClient,
     ep: PlaybackStream,
@@ -1470,16 +1331,6 @@ def _get_keys_for_stream(
     if not pssh:
         raise RuntimeError("PSSH not found in MPD manifest")
     return get_license(client, pssh, content_id, ep.token)
-
-
-def _stream_expired_error(error: Exception) -> bool:
-    """Return whether a media failure likely means signed playback URLs expired."""
-    message = str(error).lower()
-    return any(
-        marker in message
-        for marker in ("http 401", "http 403", "http 410", "unauthorized", "forbidden")
-    )
-
 
 
 def _cleanup_temp_dir(d: str) -> None:

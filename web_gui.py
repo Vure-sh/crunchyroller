@@ -511,6 +511,3 @@ def start_gui(port=8000, use_browser=False):
                 print("\nstopped.")
 
 
-def start_server(port=8000, open_browser=False):
-    start_gui(port=port, use_browser=open_browser)
-

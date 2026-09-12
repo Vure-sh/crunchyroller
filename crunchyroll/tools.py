@@ -217,37 +217,3 @@ def run_n_m3u8dl_re(
     }
 
 
-def decrypt_with_mp4decrypt(
-    encrypted_file: str,
-    keys: Dict[bytes, bytes],
-    output_file: str,
-    mp4decrypt_path: Optional[str] = None,
-) -> str:
-    """Decrypt a single CENC-encrypted MP4 using mp4decrypt (standalone use).
-
-    Args:
-        encrypted_file: Path to the encrypted fMP4/MP4.
-        keys: Widevine KID -> Key mapping.
-        output_file: Destination path.
-        mp4decrypt_path: Explicit path; auto-detected if None.
-
-    Returns:
-        The output_file path.
-    """
-    mp4d = mp4decrypt_path or find_mp4decrypt()
-    cmd: List[str] = [mp4d]
-    for kid, key in keys.items():
-        cmd += ["--key", f"{kid.hex()}:{key.hex()}"]
-    cmd += [encrypted_file, output_file]
-
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=300)
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"mp4decrypt timed out after 5 minutes for {encrypted_file}") from exc
-    if r.returncode != 0:
-        raise RuntimeError(
-            f"mp4decrypt failed (exit {r.returncode}):\n"
-            f"stdout: {r.stdout.strip()}\n"
-            f"stderr: {r.stderr.strip()}"
-        )
-    return output_file
