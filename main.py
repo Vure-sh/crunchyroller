@@ -314,7 +314,7 @@ def main() -> None:
         start_gui(port=8000, use_browser=args.browser)
         return
 
-    from crunchyroll.auth import auto_detect_etp_rt, load_config, save_config
+    from crunchyroll.auth import load_config, save_config
 
     etp_rt = ""
     if args.etp_rt:
@@ -324,13 +324,6 @@ def main() -> None:
         cfg = load_config()
         etp_rt = cfg.get("etp_rt", "")
 
-    if not etp_rt:
-        detected = auto_detect_etp_rt()
-        if detected:
-            print("Auto-detected active Crunchyroll session token from browser!")
-            etp_rt = detected
-            save_config({"etp_rt": etp_rt})
-
     cfg = load_config()
     has_android_auth = bool(cfg.get("android_access_token")) or bool(args.email and args.password)
 
@@ -338,9 +331,8 @@ def main() -> None:
         print(
             "No active Crunchyroll session token found!\n"
             "1. Log in with Android TV credentials: python main.py --email USER --password PASS\n"
-            "2. Or make sure you are logged into crunchyroll.com in Brave/Chrome/Firefox/Edge.\n"
-            "3. Or launch the Web GUI using: python main.py --gui\n"
-            "4. Or pass your etp_rt token with --etp-rt \"TOKEN\""
+            "2. Or launch the Web GUI using: python main.py --gui\n"
+            "3. Or pass your etp_rt token with --etp-rt \"TOKEN\""
         )
         sys.exit(1)
 

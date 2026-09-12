@@ -388,19 +388,6 @@ function applyState(state) {
   updateProgressPanel(state.download);
 }
 
-// scan browser for session cookie
-async function detect() {
-  toast('scanning browsers…');
-  const res = await api('/api/auto-detect', {});
-  if (res.success) {
-    toast('found session cookie!', 'ok');
-    document.getElementById('badge').classList.add('on');
-    document.getElementById('badge-txt').textContent = 'connected (token)';
-  } else {
-    toast(res.error || 'no cookie found', 'err');
-  }
-}
-
 // manual token save
 async function saveToken() {
   const val = document.getElementById('tok').value.trim();

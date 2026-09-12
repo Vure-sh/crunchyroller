@@ -48,7 +48,7 @@ sys.stdout = SafeStream(sys.stdout)
 sys.stderr = SafeStream(sys.stderr)
 
 from crunchyroll.api import get_episode_info, get_season_episodes, get_series, parse_url_type
-from crunchyroll.auth import load_config, save_config, auto_detect_etp_rt
+from crunchyroll.auth import load_config, save_config
 from crunchyroll.downloader import download_episode
 from crunchyroll.http_client import CrunchyrollHttpClient
 from crunchyroll.session_pool import ConcurrencyConfig
@@ -336,16 +336,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except Exception:
             data = {}
 
-        if path == "/api/auto-detect":
-            tok = auto_detect_etp_rt()
-            if tok:
-                with LOCK: STATE["etp_rt"] = tok
-                save_config({"etp_rt": tok})
-                self._json({"success": True})
-            else:
-                self._json({"success": False, "error": "couldn't find a session cookie. log into crunchyroll.com first."}, 404)
-
-        elif path == "/api/login":
+        if path == "/api/login":
             tok = data.get("etp_rt", "").strip()
             if not tok:
                 self._json({"success": False, "error": "paste your etp_rt token"}, 400); return

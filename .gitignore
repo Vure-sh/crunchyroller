@@ -44,3 +44,7 @@ Thumbs.db
 *.ignore
 tests/
 benchmarks/
+
+# Internal Agent & Review Artifacts
+.agents/
+*REVIEW*.md

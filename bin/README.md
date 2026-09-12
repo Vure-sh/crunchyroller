@@ -1,26 +1,11 @@
 # bin/
 
-Place the following binaries in this directory:
+This directory is **optional**.
 
-## N_m3u8DL-RE
-- **Download**: https://github.com/nilaoda/N_m3u8DL-RE/releases
-- **File**: `N_m3u8DL-RE.exe` (Windows)
-- **Purpose**: High-speed DASH/HLS segment downloader with built-in mp4decrypt integration
+By default, Crunchyroller uses its built-in pure-Python downloader and decryptor, so **no external binaries are required** for normal operation.
 
-## mp4decrypt (Bento4)
-- **Download**: https://www.bento4.com/downloads/ or https://github.com/axiomatic-systems/Bento4/releases
-- **File**: `mp4decrypt.exe` (Windows)
-- **Purpose**: CENC decryption of downloaded MP4 segments using Widevine KID:KEY pairs
+### Optional Alternative Engine (N_m3u8DL-RE)
+If you enable `"use_n_m3u8dl_re": true` in `config.json`, place the following binaries here:
 
-Both tools must be present for the downloader to work.
-
-## Directory structure
-```
-D:\Crun\
-  bin\
-    N_m3u8DL-RE.exe   <- place here
-    mp4decrypt.exe    <- place here
-  crunchyroll\
-    ...
-  main.py
-```
+1. **N_m3u8DL-RE**: [Download from GitHub releases](https://github.com/nilaoda/N_m3u8DL-RE/releases) (`N_m3u8DL-RE.exe` on Windows or `N_m3u8DL-RE` on Linux)
+2. **mp4decrypt (Bento4)**: [Download Bento4](https://www.bento4.com/downloads/) (`mp4decrypt.exe` on Windows or `mp4decrypt` on Linux)
