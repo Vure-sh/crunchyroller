@@ -167,6 +167,115 @@ def is_webview2_installed() -> bool:
     return False
 
 
+def get_system_clipboard() -> str:
+    """Safely retrieves text from the system clipboard across platforms."""
+    # 1. Try Qt application instance if available
+    try:
+        from PyQt6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app:
+            cb = app.clipboard()
+            if cb:
+                text = cb.text()
+                if text:
+                    return text
+    except Exception:
+        pass
+
+    # 2. Try Windows ctypes
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            CF_UNICODETEXT = 13
+            user32 = ctypes.windll.user32
+            kernel32 = ctypes.windll.kernel32
+            if user32.OpenClipboard(None):
+                try:
+                    h_mem = user32.GetClipboardData(CF_UNICODETEXT)
+                    if h_mem:
+                        ptr = kernel32.GlobalLock(h_mem)
+                        if ptr:
+                            try:
+                                val = ctypes.c_wchar_p(ptr).value
+                                if val:
+                                    return val
+                            finally:
+                                kernel32.GlobalUnlock(h_mem)
+                finally:
+                    user32.CloseClipboard()
+        except Exception:
+            pass
+
+    # 3. Try Linux wl-paste / xclip
+    if sys.platform != "win32":
+        for cmd in (["wl-paste", "--no-newline"], ["xclip", "-selection", "clipboard", "-o"]):
+            try:
+                import subprocess
+                out = subprocess.check_output(cmd, timeout=0.5, stderr=subprocess.DEVNULL)
+                text = out.decode("utf-8", errors="replace")
+                if text:
+                    return text
+            except Exception:
+                pass
+
+    return ""
+
+
+def set_system_clipboard(text: str) -> bool:
+    """Safely sets text into the system clipboard across platforms."""
+    if not text:
+        return True
+
+    # 1. Try Qt application instance
+    try:
+        from PyQt6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app:
+            cb = app.clipboard()
+            if cb:
+                cb.setText(text)
+                return True
+    except Exception:
+        pass
+
+    # 2. Try Windows ctypes
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            CF_UNICODETEXT = 13
+            GMEM_MOVEABLE = 0x0002
+            user32 = ctypes.windll.user32
+            kernel32 = ctypes.windll.kernel32
+            if user32.OpenClipboard(None):
+                try:
+                    user32.EmptyClipboard()
+                    encoded = text.encode("utf-16le") + b"\x00\x00"
+                    h_mem = kernel32.GlobalAlloc(GMEM_MOVEABLE, len(encoded))
+                    if h_mem:
+                        ptr = kernel32.GlobalLock(h_mem)
+                        if ptr:
+                            ctypes.memmove(ptr, encoded, len(encoded))
+                            kernel32.GlobalUnlock(h_mem)
+                            user32.SetClipboardData(CF_UNICODETEXT, h_mem)
+                            return True
+                finally:
+                    user32.CloseClipboard()
+        except Exception:
+            pass
+
+    # 3. Try Linux wl-copy / xclip
+    if sys.platform != "win32":
+        for cmd in (["wl-copy"], ["xclip", "-selection", "clipboard"]):
+            try:
+                import subprocess
+                subprocess.run(cmd, input=text.encode("utf-8"), timeout=0.5, check=True)
+                return True
+            except Exception:
+                pass
+
+    return False
+
+
 def _log(msg):
     logger.info("%s", msg)
     with LOCK:
@@ -514,6 +623,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             })
             return
 
+        elif path == "/api/clipboard/paste":
+            self._json({"success": True, "text": get_system_clipboard()})
+            return
+
         elif path in (
             "/api/download/pause",
             "/api/download/resume",
@@ -532,6 +645,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             "/api/tasks/clear-finished",
             "/api/sessions/purge",
             "/api/partials/clean",
+            "/api/clipboard/copy",
         ):
             # State-changing actions are POST-only. A plain GET (e.g. an
             # <img> tag on a foreign site) must never mutate download state.
@@ -967,6 +1081,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "skipped_active": skipped_active,
             })
 
+        elif path == "/api/clipboard/paste":
+            self._json({"success": True, "text": get_system_clipboard()})
+
+        elif path == "/api/clipboard/copy":
+            text = str(data.get("text", ""))
+            ok = set_system_clipboard(text)
+            self._json({"success": ok})
+
         elif path.startswith("/api/"):
             self._json({"success": False, "error": f"Endpoint not found: {path}. If you recently updated, please restart web_gui.py."}, 404)
         else:
@@ -1011,7 +1133,10 @@ def start_gui(port=8000, use_browser=False):
                     _orig_perm = QWebEnginePage.setFeaturePermission
 
                     def _safe_perm(self, url, feature, policy):
-                        if isinstance(policy, int):
+                        cb_feature = getattr(QWebEnginePage.Feature, 'ClipboardReadWrite', None)
+                        if cb_feature is not None and feature == cb_feature:
+                            policy = QWebEnginePage.PermissionPolicy.PermissionGrantedByUser
+                        elif isinstance(policy, int):
                             if policy == 1:
                                 policy = QWebEnginePage.PermissionPolicy.PermissionGrantedByUser
                             else:

@@ -1847,6 +1847,14 @@ function initCustomContextMenu() {
   const menu = document.getElementById('custom-context-menu');
   if (!menu) return;
 
+  let lastSelectionStart = null;
+  let lastSelectionEnd = null;
+
+  menu.addEventListener('mousedown', (e) => {
+    // Prevent context menu buttons from stealing focus / clearing selection from inputs
+    e.preventDefault();
+  });
+
   window.addEventListener('contextmenu', (e) => {
     // If Shift is pressed, allow native developer fallback if available
     if (e.shiftKey) return;
@@ -1859,12 +1867,14 @@ function initCustomContextMenu() {
 
     let selectedText = '';
     if (isInput) {
-      const start = e.target.selectionStart;
-      const end = e.target.selectionEnd;
-      if (typeof start === 'number' && typeof end === 'number' && end > start) {
-        selectedText = e.target.value.substring(start, end);
+      lastSelectionStart = e.target.selectionStart;
+      lastSelectionEnd = e.target.selectionEnd;
+      if (typeof lastSelectionStart === 'number' && typeof lastSelectionEnd === 'number' && lastSelectionEnd > lastSelectionStart) {
+        selectedText = e.target.value.substring(lastSelectionStart, lastSelectionEnd);
       }
     } else {
+      lastSelectionStart = null;
+      lastSelectionEnd = null;
       selectedText = window.getSelection() ? window.getSelection().toString() : '';
     }
     lastSelectedText = selectedText;
@@ -1925,7 +1935,7 @@ function hideContextMenu() {
   if (menu) menu.style.display = 'none';
 }
 
-function contextMenuAction(action) {
+async function contextMenuAction(action) {
   const el = lastContextMenuTarget;
   const isInput = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
   const isEditable = isInput && !el.readOnly && !el.disabled;
@@ -1961,13 +1971,18 @@ function contextMenuAction(action) {
             copied = true;
           } catch (_) {}
         }
+
+        try {
+          await api('/api/clipboard/copy', { text: textToCopy });
+        } catch (_) {}
+
         toast('Copied to clipboard');
       }
     } else if (action === 'cut') {
       if (isEditable) {
         el.focus();
-        const start = el.selectionStart;
-        const end = el.selectionEnd;
+        let start = typeof el.selectionStart === 'number' ? el.selectionStart : lastSelectionStart;
+        let end = typeof el.selectionEnd === 'number' ? el.selectionEnd : lastSelectionEnd;
         if (typeof start === 'number' && typeof end === 'number' && end > start) {
           const textToCut = el.value.substring(start, end);
           let cutSuccess = false;
@@ -1976,7 +1991,6 @@ function contextMenuAction(action) {
           } catch (_) {}
 
           if (!cutSuccess) {
-            // Manual fallback without requesting async clipboard permissions
             try {
               const ta = document.createElement('textarea');
               ta.value = textToCut;
@@ -1993,6 +2007,10 @@ function contextMenuAction(action) {
             el.selectionStart = el.selectionEnd = start;
           }
 
+          try {
+            await api('/api/clipboard/copy', { text: textToCut });
+          } catch (_) {}
+
           el.dispatchEvent(new Event('input', { bubbles: true }));
           el.dispatchEvent(new Event('change', { bubbles: true }));
           toast('Cut to clipboard');
@@ -2001,22 +2019,48 @@ function contextMenuAction(action) {
     } else if (action === 'paste') {
       if (isEditable) {
         el.focus();
-        let pasted = false;
-        try {
-          pasted = document.execCommand('paste');
-        } catch (_) {}
+        let textToPaste = '';
 
-        if (!pasted && navigator.clipboard && navigator.clipboard.readText) {
-          navigator.clipboard.readText().then(text => {
-            if (text) {
-              const start = el.selectionStart || 0;
-              const end = el.selectionEnd || 0;
-              el.value = el.value.substring(0, start) + text + el.value.substring(end);
-              el.selectionStart = el.selectionEnd = start + text.length;
-              el.dispatchEvent(new Event('input', { bubbles: true }));
-              el.dispatchEvent(new Event('change', { bubbles: true }));
+        // 1. Try modern clipboard API
+        if (navigator.clipboard && navigator.clipboard.readText) {
+          try {
+            textToPaste = await navigator.clipboard.readText();
+          } catch (_) {}
+        }
+
+        // 2. Desktop backend clipboard fallback
+        if (!textToPaste) {
+          try {
+            const res = await api('/api/clipboard/paste');
+            if (res && res.success && typeof res.text === 'string') {
+              textToPaste = res.text;
             }
-          }).catch(() => {});
+          } catch (_) {}
+        }
+
+        // 3. Fallback execCommand
+        if (!textToPaste) {
+          try {
+            document.execCommand('paste');
+          } catch (_) {}
+        }
+
+        // 4. Insert into the target input/textarea
+        if (textToPaste) {
+          const val = el.value || '';
+          let start = typeof el.selectionStart === 'number' ? el.selectionStart : lastSelectionStart;
+          let end = typeof el.selectionEnd === 'number' ? el.selectionEnd : lastSelectionEnd;
+
+          if (typeof start !== 'number' || isNaN(start)) start = val.length;
+          if (typeof end !== 'number' || isNaN(end)) end = start;
+
+          el.value = val.substring(0, start) + textToPaste + val.substring(end);
+          el.selectionStart = el.selectionEnd = start + textToPaste.length;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+          toast('Pasted from clipboard');
+        } else {
+          toast('Clipboard is empty');
         }
       }
     } else if (action === 'selectall') {
