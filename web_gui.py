@@ -1004,6 +1004,23 @@ def start_gui(port=8000, use_browser=False):
                 text_select=True,
             )
             gui_backend = "qt" if sys.platform != "win32" else None
+            if sys.platform != "win32":
+                # Patch upstream pywebview PyQt6 bug where setFeaturePermission passes int instead of enum
+                try:
+                    from PyQt6.QtWebEngineCore import QWebEnginePage
+                    _orig_perm = QWebEnginePage.setFeaturePermission
+
+                    def _safe_perm(self, url, feature, policy):
+                        if isinstance(policy, int):
+                            if policy == 1:
+                                policy = QWebEnginePage.PermissionPolicy.PermissionGrantedByUser
+                            else:
+                                policy = QWebEnginePage.PermissionPolicy.PermissionDeniedByUser
+                        return _orig_perm(self, url, feature, policy)
+
+                    QWebEnginePage.setFeaturePermission = _safe_perm
+                except Exception:
+                    pass
             webview.start(gui=gui_backend)
         except Exception as e:
             logger.error("Native window launch failed: %s", e, exc_info=True)

@@ -1925,7 +1925,7 @@ function hideContextMenu() {
   if (menu) menu.style.display = 'none';
 }
 
-async function contextMenuAction(action) {
+function contextMenuAction(action) {
   const el = lastContextMenuTarget;
   const isInput = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
   const isEditable = isInput && !el.readOnly && !el.disabled;
@@ -1939,26 +1939,60 @@ async function contextMenuAction(action) {
         textToCopy = el.value || '';
       }
       if (textToCopy) {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(textToCopy);
-        } else {
-          document.execCommand('copy');
+        let copied = false;
+        try {
+          if (isInput) {
+            el.focus();
+            copied = document.execCommand('copy');
+          }
+        } catch (_) {}
+
+        if (!copied) {
+          try {
+            const ta = document.createElement('textarea');
+            ta.value = textToCopy;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            copied = true;
+          } catch (_) {}
         }
         toast('Copied to clipboard');
       }
     } else if (action === 'cut') {
       if (isEditable) {
+        el.focus();
         const start = el.selectionStart;
         const end = el.selectionEnd;
-        const textToCut = el.value.substring(start, end);
-        if (textToCut) {
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            await navigator.clipboard.writeText(textToCut);
-          } else {
-            document.execCommand('cut');
+        if (typeof start === 'number' && typeof end === 'number' && end > start) {
+          const textToCut = el.value.substring(start, end);
+          let cutSuccess = false;
+          try {
+            cutSuccess = document.execCommand('cut');
+          } catch (_) {}
+
+          if (!cutSuccess) {
+            // Manual fallback without requesting async clipboard permissions
+            try {
+              const ta = document.createElement('textarea');
+              ta.value = textToCut;
+              ta.style.position = 'fixed';
+              ta.style.opacity = '0';
+              ta.style.left = '-9999px';
+              document.body.appendChild(ta);
+              ta.select();
+              document.execCommand('copy');
+              document.body.removeChild(ta);
+            } catch (_) {}
+
+            el.value = el.value.substring(0, start) + el.value.substring(end);
+            el.selectionStart = el.selectionEnd = start;
           }
-          el.value = el.value.substring(0, start) + el.value.substring(end);
-          el.selectionStart = el.selectionEnd = start;
+
           el.dispatchEvent(new Event('input', { bubbles: true }));
           el.dispatchEvent(new Event('change', { bubbles: true }));
           toast('Cut to clipboard');
@@ -1966,23 +2000,23 @@ async function contextMenuAction(action) {
       }
     } else if (action === 'paste') {
       if (isEditable) {
-        let textToPaste = '';
-        if (navigator.clipboard && navigator.clipboard.readText) {
-          try {
-            textToPaste = await navigator.clipboard.readText();
-          } catch (_) {}
-        }
-        if (textToPaste) {
-          const start = el.selectionStart || 0;
-          const end = el.selectionEnd || 0;
-          el.value = el.value.substring(0, start) + textToPaste + el.value.substring(end);
-          el.selectionStart = el.selectionEnd = start + textToPaste.length;
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-          el.focus();
-        } else {
-          el.focus();
-          document.execCommand('paste');
+        el.focus();
+        let pasted = false;
+        try {
+          pasted = document.execCommand('paste');
+        } catch (_) {}
+
+        if (!pasted && navigator.clipboard && navigator.clipboard.readText) {
+          navigator.clipboard.readText().then(text => {
+            if (text) {
+              const start = el.selectionStart || 0;
+              const end = el.selectionEnd || 0;
+              el.value = el.value.substring(0, start) + text + el.value.substring(end);
+              el.selectionStart = el.selectionEnd = start + text.length;
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+          }).catch(() => {});
         }
       }
     } else if (action === 'selectall') {
