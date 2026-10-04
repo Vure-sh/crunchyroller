@@ -334,6 +334,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   });
 
   initCustomContextMenu();
+  checkForUpdates(false);
 });
 
 // Prompt banner for starring the repo (disabled)
@@ -424,6 +425,13 @@ function applyState(state) {
     const logPathDisplay = document.getElementById('log-path-display');
     if (logPathDisplay) {
       logPathDisplay.textContent = state.log_path;
+    }
+  }
+
+  if (state.version) {
+    const verDisplay = document.getElementById('version-display');
+    if (verDisplay) {
+      verDisplay.textContent = 'v' + state.version;
     }
   }
 
@@ -747,6 +755,62 @@ async function copyLogPath() {
       await api('/api/clipboard/copy', { text: p });
     }
     toast('Copied log path to clipboard', 'ok');
+  }
+}
+
+// Check for newer GitHub releases
+async function checkForUpdates(manual = false) {
+  const btn = document.getElementById('btn-check-updates');
+  const origBtnText = btn ? btn.textContent : 'check for updates';
+  if (manual && btn) {
+    btn.disabled = true;
+    btn.textContent = 'checking...';
+  }
+
+  try {
+    const endpoint = manual ? '/api/version/check?force=1' : '/api/version/check';
+    const res = await api(endpoint);
+
+    if (res && res.success) {
+      const badge = document.getElementById('update-badge');
+      const updateTxt = document.getElementById('update-text');
+      const verDisplay = document.getElementById('version-display');
+
+      if (verDisplay && res.current_version) {
+        verDisplay.textContent = 'v' + res.current_version;
+      }
+
+      if (res.has_update) {
+        if (badge) {
+          badge.href = res.release_url || 'https://github.com/Vure-sh/crunchyroller/releases/latest';
+          if (updateTxt) {
+            updateTxt.textContent = `v${res.latest_version} available`;
+          }
+          badge.style.display = 'inline-flex';
+        }
+        if (manual) {
+          toast(`Update v${res.latest_version} available!`, 'ok');
+        }
+      } else {
+        if (badge) {
+          badge.style.display = 'none';
+        }
+        if (manual) {
+          toast(`You are on the latest version (v${res.current_version})`, 'ok');
+        }
+      }
+    } else if (manual) {
+      toast(res?.error || 'Could not check for updates', 'err');
+    }
+  } catch (err) {
+    if (manual) {
+      toast('Update check failed: ' + err.message, 'err');
+    }
+  } finally {
+    if (manual && btn) {
+      btn.disabled = false;
+      btn.textContent = origBtnText;
+    }
   }
 }
 

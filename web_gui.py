@@ -8,9 +8,11 @@ import threading
 import time
 import webbrowser
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
+from crunchyroll import __version__
 from crunchyroll.logger import get_default_log_dir, get_log_path, is_logging_enabled, set_logging_enabled, setup_logging
+from crunchyroll.version import check_for_updates
 
 # Ensure pywebview uses PyQt6 on Linux when available
 os.environ.setdefault("QT_API", "pyqt6")
@@ -592,6 +594,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "queue": q_state["queue"],
                     "tasks": q_state.get("tasks", []),
                     "log_path": get_log_path(),
+                    "version": __version__,
                 })
             return
 
@@ -682,6 +685,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "path": log_path,
                 "content": tail,
             })
+            return
+
+        elif path == "/api/version/check":
+            query = parse_qs(parsed_url.query)
+            force = query.get("force", ["0"])[0] in ("1", "true", "True")
+            update_info = check_for_updates(force=force)
+            self._json({"success": True, **update_info})
             return
 
         elif path in (
@@ -1159,6 +1169,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "path": log_path,
                 "content": tail,
             })
+
+        elif path == "/api/version/check":
+            force = bool(data.get("force", False))
+            update_info = check_for_updates(force=force)
+            self._json({"success": True, **update_info})
 
         elif path.startswith("/api/"):
             self._json({"success": False, "error": f"Endpoint not found: {path}. If you recently updated, please restart web_gui.py."}, 404)
