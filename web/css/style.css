@@ -99,25 +99,30 @@ header {
   font-size: 0.72rem;
   font-weight: 500;
   letter-spacing: 0.2px;
-  transition: all 0.25s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .btn-github-star svg {
-  color: #ffffff;
-  fill: #ffffff;
-  transition: transform 0.25s ease, filter 0.25s ease;
+  width: 13px;
+  height: 13px;
+  color: inherit;
+  fill: currentColor;
+  transform-origin: center;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), filter 0.2s ease, fill 0.2s ease;
+  flex-shrink: 0;
 }
 
 .btn-github-star:hover {
   background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.35);
+  border-color: rgba(255, 255, 255, 0.3);
   color: var(--white);
-  box-shadow: 0 0 12px rgba(255, 255, 255, 0.2);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.1);
+  transform: translateY(-1px);
 }
 
 .btn-github-star:hover svg {
-  transform: scale(1.15) rotate(15deg);
-  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.6));
+  transform: scale(1.12);
+  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.5));
 }
 
 .badge {
@@ -214,9 +219,10 @@ header {
 }
 
 .btn-star-cta:hover {
-  background: #ffffff;
-  color: #000000;
-  box-shadow: 0 0 14px rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.4);
+  color: #ffffff;
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.18);
   transform: translateY(-1px);
 }
 
