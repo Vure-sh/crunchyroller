@@ -10,7 +10,7 @@ import webbrowser
 from typing import Optional
 from urllib.parse import urlparse
 
-from crunchyroll.logger import get_log_path, is_logging_enabled, set_logging_enabled, setup_logging
+from crunchyroll.logger import get_default_log_dir, get_log_path, is_logging_enabled, set_logging_enabled, setup_logging
 
 # Ensure pywebview uses PyQt6 on Linux when available
 os.environ.setdefault("QT_API", "pyqt6")
@@ -274,6 +274,47 @@ def set_system_clipboard(text: str) -> bool:
                 pass
 
     return False
+
+
+def open_path_in_file_manager(path: str) -> bool:
+    """Safely opens a directory or file in the host operating system's native file manager."""
+    if not path:
+        return False
+    target = os.path.abspath(os.path.expanduser(path))
+    if not os.path.exists(target):
+        target = os.path.dirname(target)
+        if not os.path.exists(target):
+            return False
+
+    folder = target if os.path.isdir(target) else os.path.dirname(target)
+    try:
+        if sys.platform == "win32":
+            # os.startfile on Windows launches Explorer directly without flashing a console window
+            os.startfile(folder)
+            return True
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", folder])
+            return True
+        else:
+            # Linux / FreeDesktop
+            subprocess.Popen(["xdg-open", folder])
+            return True
+    except Exception as e:
+        logger.error("Failed to open file manager for %s: %s", folder, e)
+        return False
+
+
+def get_log_tail(lines: int = 150) -> str:
+    """Safely reads the last N lines from crunchyroller.log."""
+    log_file = get_log_path()
+    if not os.path.exists(log_file):
+        return ""
+    try:
+        with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+            all_lines = f.readlines()
+            return "".join(all_lines[-lines:])
+    except Exception as e:
+        return f"Error reading log file: {e}"
 
 
 def _log(msg):
@@ -625,6 +666,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         elif path == "/api/clipboard/paste":
             self._json({"success": True, "text": get_system_clipboard()})
+            return
+
+        elif path == "/api/logs/open-folder":
+            log_dir = get_default_log_dir()
+            opened = open_path_in_file_manager(log_dir)
+            self._json({"success": opened, "path": log_dir})
+            return
+
+        elif path == "/api/logs/content":
+            log_path = get_log_path()
+            tail = get_log_tail()
+            self._json({
+                "success": True,
+                "path": log_path,
+                "content": tail,
+            })
             return
 
         elif path in (
@@ -1088,6 +1145,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             text = str(data.get("text", ""))
             ok = set_system_clipboard(text)
             self._json({"success": ok})
+
+        elif path == "/api/logs/open-folder":
+            log_dir = get_default_log_dir()
+            opened = open_path_in_file_manager(log_dir)
+            self._json({"success": opened, "path": log_dir})
+
+        elif path == "/api/logs/content":
+            log_path = get_log_path()
+            tail = get_log_tail()
+            self._json({
+                "success": True,
+                "path": log_path,
+                "content": tail,
+            })
 
         elif path.startswith("/api/"):
             self._json({"success": False, "error": f"Endpoint not found: {path}. If you recently updated, please restart web_gui.py."}, 404)

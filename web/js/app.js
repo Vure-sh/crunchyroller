@@ -439,6 +439,13 @@ function applyState(state) {
     updateQuickFormatBar();
   }
 
+  if (state.log_path) {
+    const logPathDisplay = document.getElementById('log-path-display');
+    if (logPathDisplay) {
+      logPathDisplay.textContent = state.log_path;
+    }
+  }
+
   // Update nav queue badge
   const navBadge = document.getElementById('nav-queue-badge');
   const queuedCount = (state.download && state.download.queued_count !== undefined)
@@ -673,6 +680,92 @@ async function purgeZombieSessions() {
       btn.disabled = false;
       btn.textContent = origText;
     }
+  }
+}
+
+// Open native file explorer to the logs folder
+async function openLogFolder() {
+  const btn = document.getElementById('btn-open-log-dir');
+  const origText = btn ? btn.textContent : 'open folder';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'opening...';
+  }
+  try {
+    const res = await api('/api/logs/open-folder', {});
+    if (res && res.success) {
+      toast('Opened logs directory', 'ok');
+    } else {
+      const state = await api('/api/state');
+      const p = state?.log_path || res?.path;
+      if (p && navigator.clipboard) {
+        await navigator.clipboard.writeText(p);
+        toast('Could not open file manager. Path copied to clipboard.', 'err');
+      } else {
+        toast('Failed to open logs directory', 'err');
+      }
+    }
+  } catch (e) {
+    toast('Error opening logs: ' + e.message, 'err');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = origText;
+    }
+  }
+}
+
+// Copy recent log file content to clipboard
+async function copyLogContent() {
+  const btn = document.getElementById('btn-copy-log');
+  const origText = btn ? btn.textContent : 'copy log';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'copying...';
+  }
+  try {
+    const res = await api('/api/logs/content');
+    if (res && res.success && res.content) {
+      let copied = false;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        try {
+          await navigator.clipboard.writeText(res.content);
+          copied = true;
+        } catch (_) {}
+      }
+      if (!copied) {
+        await api('/api/clipboard/copy', { text: res.content });
+        copied = true;
+      }
+      toast('Copied recent logs to clipboard', 'ok');
+    } else {
+      toast('No log content found or log is empty', 'err');
+    }
+  } catch (e) {
+    toast('Error copying logs: ' + e.message, 'err');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = origText;
+    }
+  }
+}
+
+// Copy full log file path to clipboard
+async function copyLogPath() {
+  const el = document.getElementById('log-path-display');
+  const p = el?.textContent?.trim();
+  if (p && p !== 'checking log path...') {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try {
+        await navigator.clipboard.writeText(p);
+      } catch (_) {
+        await api('/api/clipboard/copy', { text: p });
+      }
+    } else {
+      await api('/api/clipboard/copy', { text: p });
+    }
+    toast('Copied log path to clipboard', 'ok');
   }
 }
 

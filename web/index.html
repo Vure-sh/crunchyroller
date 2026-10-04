@@ -296,6 +296,18 @@
             </label>
           </div>
 
+          <!-- Application Logs Box -->
+          <div class="cache-cleaner-box">
+            <div class="cache-cleaner-info">
+              <div class="toggle-title">application logs</div>
+              <div class="cache-stats-text" id="log-path-display" title="Click to copy log path" style="cursor:pointer;" onclick="copyLogPath()">checking log path...</div>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button class="btn-s" id="btn-copy-log" onclick="copyLogContent()" title="Copy recent log lines to clipboard">copy log</button>
+              <button class="btn-s" id="btn-open-log-dir" onclick="openLogFolder()" title="Open logs directory in file manager">open folder</button>
+            </div>
+          </div>
+
           <!-- Partials Cache Cleaner -->
           <div class="cache-cleaner-box">
             <div class="cache-cleaner-info">
