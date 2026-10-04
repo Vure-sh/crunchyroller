@@ -333,31 +333,12 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  initStarBanner();
   initCustomContextMenu();
 });
 
-// Prompt banner for starring the repo
-function initStarBanner() {
-  try {
-    if (!localStorage.getItem('star_prompt_dismissed')) {
-      const banner = document.getElementById('star-banner');
-      if (banner) banner.style.display = 'flex';
-    }
-  } catch (e) {}
-}
-
-function dismissStarBanner(starred) {
-  try {
-    localStorage.setItem('star_prompt_dismissed', 'true');
-  } catch (e) {}
-  const banner = document.getElementById('star-banner');
-  if (banner) {
-    banner.style.opacity = '0';
-    banner.style.transform = 'translateY(-6px)';
-    setTimeout(() => { banner.style.display = 'none'; }, 200);
-  }
-}
+// Prompt banner for starring the repo (disabled)
+function initStarBanner() {}
+function dismissStarBanner() {}
 
 // sync UI with backend state
 function applyState(state) {
