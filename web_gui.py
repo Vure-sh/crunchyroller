@@ -1001,6 +1001,7 @@ def start_gui(port=8000, use_browser=False):
                 height=760,
                 min_size=(640, 520),
                 background_color="#000000",
+                text_select=True,
             )
             gui_backend = "qt" if sys.platform != "win32" else None
             webview.start(gui=gui_backend)

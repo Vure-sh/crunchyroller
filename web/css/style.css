@@ -2126,3 +2126,84 @@ button:disabled,
   font-size: 0.7rem;
 }
 
+/* Custom Text Selection Highlight */
+::selection {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+
+/* Custom Context Menu */
+.context-menu {
+  position: fixed;
+  z-index: 99999;
+  min-width: 165px;
+  background: rgba(14, 14, 14, 0.94);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 5px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  user-select: none;
+  animation: ctxFadeIn 0.08s ease-out;
+}
+
+@keyframes ctxFadeIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 450;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+
+.context-menu-item svg {
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.context-menu-item:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--white);
+}
+
+.context-menu-item:hover:not(:disabled) svg {
+  opacity: 1;
+}
+
+.context-menu-item:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.ctx-shortcut {
+  margin-left: auto;
+  font-size: 0.68rem;
+  color: var(--dim);
+  font-family: 'JetBrains Mono', monospace;
+  padding-left: 12px;
+}
+
+.context-menu-sep {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 3px 2px;
+}
+

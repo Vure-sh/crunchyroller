@@ -334,6 +334,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   });
 
   initStarBanner();
+  initCustomContextMenu();
 });
 
 // Prompt banner for starring the repo
@@ -1834,5 +1835,169 @@ function updateTaskCard(card, task) {
         }
       });
     }
+  }
+}
+
+// ── Custom Desktop Context Menu (Right Click) ────────────────────────────────
+
+let lastContextMenuTarget = null;
+let lastSelectedText = '';
+
+function initCustomContextMenu() {
+  const menu = document.getElementById('custom-context-menu');
+  if (!menu) return;
+
+  window.addEventListener('contextmenu', (e) => {
+    // If Shift is pressed, allow native developer fallback if available
+    if (e.shiftKey) return;
+
+    e.preventDefault();
+    lastContextMenuTarget = e.target;
+
+    const isInput = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA');
+    const isEditable = isInput && !e.target.readOnly && !e.target.disabled;
+
+    let selectedText = '';
+    if (isInput) {
+      const start = e.target.selectionStart;
+      const end = e.target.selectionEnd;
+      if (typeof start === 'number' && typeof end === 'number' && end > start) {
+        selectedText = e.target.value.substring(start, end);
+      }
+    } else {
+      selectedText = window.getSelection() ? window.getSelection().toString() : '';
+    }
+    lastSelectedText = selectedText;
+
+    const copyBtn = document.getElementById('ctx-copy');
+    const cutBtn = document.getElementById('ctx-cut');
+    const pasteBtn = document.getElementById('ctx-paste');
+    const selectAllBtn = document.getElementById('ctx-selectall');
+
+    if (copyBtn) {
+      copyBtn.disabled = !selectedText && (!isInput || !e.target.value);
+    }
+    if (cutBtn) {
+      cutBtn.disabled = !isEditable || !selectedText;
+    }
+    if (pasteBtn) {
+      pasteBtn.disabled = !isEditable;
+    }
+    if (selectAllBtn) {
+      selectAllBtn.disabled = false;
+    }
+
+    menu.style.display = 'flex';
+
+    // Viewport-aware boundary positioning
+    const mWidth = menu.offsetWidth || 165;
+    const mHeight = menu.offsetHeight || 135;
+    let x = e.clientX;
+    let y = e.clientY;
+
+    if (x + mWidth > window.innerWidth - 8) {
+      x = Math.max(8, window.innerWidth - mWidth - 8);
+    }
+    if (y + mHeight > window.innerHeight - 8) {
+      y = Math.max(8, window.innerHeight - mHeight - 8);
+    }
+
+    menu.style.left = `${x}px`;
+    menu.style.top = `${y}px`;
+  });
+
+  // Auto-dismiss on click outside, scroll, resize, or Escape
+  window.addEventListener('click', (e) => {
+    if (!menu.contains(e.target)) {
+      hideContextMenu();
+    }
+  });
+
+  window.addEventListener('scroll', () => hideContextMenu(), true);
+  window.addEventListener('resize', () => hideContextMenu());
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') hideContextMenu();
+  });
+}
+
+function hideContextMenu() {
+  const menu = document.getElementById('custom-context-menu');
+  if (menu) menu.style.display = 'none';
+}
+
+async function contextMenuAction(action) {
+  const el = lastContextMenuTarget;
+  const isInput = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+  const isEditable = isInput && !el.readOnly && !el.disabled;
+
+  hideContextMenu();
+
+  try {
+    if (action === 'copy') {
+      let textToCopy = lastSelectedText;
+      if (!textToCopy && isInput) {
+        textToCopy = el.value || '';
+      }
+      if (textToCopy) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(textToCopy);
+        } else {
+          document.execCommand('copy');
+        }
+        toast('Copied to clipboard');
+      }
+    } else if (action === 'cut') {
+      if (isEditable) {
+        const start = el.selectionStart;
+        const end = el.selectionEnd;
+        const textToCut = el.value.substring(start, end);
+        if (textToCut) {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(textToCut);
+          } else {
+            document.execCommand('cut');
+          }
+          el.value = el.value.substring(0, start) + el.value.substring(end);
+          el.selectionStart = el.selectionEnd = start;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+          toast('Cut to clipboard');
+        }
+      }
+    } else if (action === 'paste') {
+      if (isEditable) {
+        let textToPaste = '';
+        if (navigator.clipboard && navigator.clipboard.readText) {
+          try {
+            textToPaste = await navigator.clipboard.readText();
+          } catch (_) {}
+        }
+        if (textToPaste) {
+          const start = el.selectionStart || 0;
+          const end = el.selectionEnd || 0;
+          el.value = el.value.substring(0, start) + textToPaste + el.value.substring(end);
+          el.selectionStart = el.selectionEnd = start + textToPaste.length;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+          el.focus();
+        } else {
+          el.focus();
+          document.execCommand('paste');
+        }
+      }
+    } else if (action === 'selectall') {
+      if (isInput) {
+        el.focus();
+        el.select();
+      } else {
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(document.body);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+    }
+  } catch (err) {
+    console.warn('Context menu action failed:', err);
   }
 }
