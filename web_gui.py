@@ -284,25 +284,36 @@ def open_path_in_file_manager(path: str) -> bool:
         return False
     target = os.path.abspath(os.path.expanduser(path))
     if not os.path.exists(target):
-        target = os.path.dirname(target)
-        if not os.path.exists(target):
-            return False
+        if not os.path.splitext(target)[1]:
+            try:
+                os.makedirs(target, exist_ok=True)
+            except Exception:
+                pass
+        else:
+            parent = os.path.dirname(target)
+            if not os.path.exists(parent):
+                return False
 
     folder = target if os.path.isdir(target) else os.path.dirname(target)
     try:
         if sys.platform == "win32":
-            # os.startfile on Windows launches Explorer directly without flashing a console window
-            os.startfile(folder)
+            if os.path.isfile(target):
+                subprocess.Popen(["explorer", f"/select,{target}"])
+            else:
+                os.startfile(folder)
             return True
         elif sys.platform == "darwin":
-            subprocess.Popen(["open", folder])
+            if os.path.isfile(target):
+                subprocess.Popen(["open", "-R", target])
+            else:
+                subprocess.Popen(["open", folder])
             return True
         else:
             # Linux / FreeDesktop
             subprocess.Popen(["xdg-open", folder])
             return True
     except Exception as e:
-        logger.error("Failed to open file manager for %s: %s", folder, e)
+        logger.error("Failed to open file manager for %s: %s", target, e)
         return False
 
 
@@ -675,6 +686,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
             log_dir = get_default_log_dir()
             opened = open_path_in_file_manager(log_dir)
             self._json({"success": opened, "path": log_dir})
+            return
+
+        elif path == "/api/downloads/open-folder":
+            query = parse_qs(parsed_url.query)
+            target = query.get("path", [""])[0].strip()
+            if not target:
+                with LOCK:
+                    target = STATE["config"].get("download_dir") or DEFAULT_DOWNLOAD_DIR
+            target = os.path.abspath(os.path.expanduser(target))
+            opened = open_path_in_file_manager(target)
+            self._json({"success": opened, "path": target})
             return
 
         elif path == "/api/logs/content":
@@ -1161,6 +1183,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             opened = open_path_in_file_manager(log_dir)
             self._json({"success": opened, "path": log_dir})
 
+        elif path == "/api/downloads/open-folder":
+            target = str(data.get("path") or "").strip()
+            if not target:
+                with LOCK:
+                    target = STATE["config"].get("download_dir") or DEFAULT_DOWNLOAD_DIR
+            target = os.path.abspath(os.path.expanduser(target))
+            opened = open_path_in_file_manager(target)
+            self._json({"success": opened, "path": target})
+
         elif path == "/api/logs/content":
             log_path = get_log_path()
             tail = get_log_tail()
@@ -1179,6 +1210,41 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._json({"success": False, "error": f"Endpoint not found: {path}. If you recently updated, please restart web_gui.py."}, 404)
         else:
             self.send_error(404)
+
+
+def unblock_bundled_files() -> int:
+    """Remove the Windows 'downloaded from the internet' flag (Zone.Identifier) from the
+    bundled binaries and return how many were unblocked.
+
+    A zip downloaded in a browser and extracted with Explorer tags every extracted file
+    with this NTFS stream. .NET then refuses to load Python.Runtime.dll, and clr-loader
+    swallows the real error and only reports 'Failed to resolve
+    Python.Runtime.Loader.Initialize', which breaks the native window.
+    """
+    if sys.platform != "win32" or not getattr(sys, "frozen", False):
+        return 0
+
+    app_dir = os.path.dirname(os.path.abspath(sys.executable))
+    unblocked = 0
+    try:
+        for root, _dirs, files in os.walk(app_dir):
+            for name in files:
+                if not name.lower().endswith((".dll", ".exe", ".pyd")):
+                    continue
+                stream = os.path.join(root, name) + ":Zone.Identifier"
+                try:
+                    os.remove(stream)
+                    unblocked += 1
+                except OSError:
+                    # no stream on this file (the common case) or it is locked
+                    pass
+    except Exception as e:
+        logger.warning("Could not unblock bundled files: %s", e)
+        return unblocked
+
+    if unblocked:
+        logger.info("Removed internet-download flag from %d bundled file(s)", unblocked)
+    return unblocked
 
 
 def start_gui(port=8000, use_browser=False):
@@ -1200,6 +1266,8 @@ def start_gui(port=8000, use_browser=False):
             print("\nstopped.")
     else:
         try:
+            # must run before pywebview imports clr, which loads Python.Runtime.dll
+            unblock_bundled_files()
             import webview
             global CURRENT_WINDOW
             CURRENT_WINDOW = webview.create_window(

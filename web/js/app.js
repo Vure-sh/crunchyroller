@@ -927,6 +927,18 @@ async function loadHistory() {
         pill.textContent = item.status;
         right.appendChild(pill);
 
+        if (item.status === 'completed') {
+          const openBtn = document.createElement('button');
+          openBtn.className = 'btn-history-open';
+          openBtn.title = 'Open file / show in folder';
+          openBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>';
+          openBtn.onclick = (e) => {
+            e.stopPropagation();
+            openDownloadFolder(item.output_file || '');
+          };
+          right.appendChild(openBtn);
+        }
+
         row.append(left, right);
         list.appendChild(row);
       });
@@ -962,6 +974,22 @@ async function browseDirectory() {
       btn.disabled = false;
       btn.textContent = origText;
     }
+  }
+}
+
+// open native download folder or revealed file in host file manager
+async function openDownloadFolder(customPath = '') {
+  try {
+    const payload = customPath ? { path: customPath } : {};
+    const res = await api('/api/downloads/open-folder', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    if (!res || !res.success) {
+      toast(res?.error || 'could not open folder', 'err');
+    }
+  } catch (err) {
+    toast('failed to open folder: ' + err.message, 'err');
   }
 }
 
@@ -1495,6 +1523,15 @@ function updateProgressPanel(dl) {
       pauseBtn.style.display = 'none';
       cancelBtn.style.display = 'none';
       if (skipBtn) skipBtn.style.display = 'none';
+    }
+  }
+
+  const openFolderBtn = document.getElementById('dl-open-folder-btn');
+  if (openFolderBtn) {
+    if (dl.status === 'completed') {
+      openFolderBtn.style.display = 'inline-block';
+    } else {
+      openFolderBtn.style.display = 'none';
     }
   }
 

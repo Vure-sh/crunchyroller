@@ -18,6 +18,7 @@ dist/
 !crunchyroller.spec
 *.zip
 android/
+/crunchyroller/
 
 # Python Cache & Environment
 __pycache__/

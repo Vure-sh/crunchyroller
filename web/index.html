@@ -4,16 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>crunchyroller</title>
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3.5.0">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3.5.1">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=3.5.0">
+  <link rel="stylesheet" href="/css/style.css?v=3.5.1">
 </head>
 <body>
 
   <header>
     <div class="brand">
-      <img src="/logo.svg?v=3.5.0" alt="logo" class="brand-icon">
+      <img src="/logo.svg?v=3.5.1" alt="logo" class="brand-icon">
     </div>
 
     <nav class="nav-tabs" id="nav-tabs">
@@ -132,6 +132,7 @@
             <div class="row">
               <input type="text" id="download-dir" placeholder="default: anime/ (or choose custom)" onchange="saveCfg()">
               <button class="btn-s" id="browse-dir-btn" onclick="browseDirectory()">browse</button>
+              <button class="btn-s" id="open-dir-btn" onclick="openDownloadFolder()" title="Open download folder in file manager">open</button>
             </div>
           </div>
           <p class="hint">
@@ -185,6 +186,7 @@
               <button id="dl-pause-btn" class="btn-s btn-pause" onclick="togglePause()">pause</button>
               <button id="dl-skip-btn" class="btn-s btn-skip" onclick="skipDl()" title="Skip this episode and continue next">skip</button>
               <button id="dl-cancel-btn" class="btn-s btn-cancel" onclick="cancelCurrentEp()" title="Cancel active episode and move to next">cancel ep</button>
+              <button id="dl-open-folder-btn" class="btn-s btn-open-folder" onclick="openDownloadFolder()" style="display:none;" title="Open download folder in file manager">open folder</button>
             </div>
           </div>
           <div id="cur-ep" class="dl-ep-name"></div>
@@ -300,7 +302,7 @@
           <div class="cache-cleaner-box">
             <div class="cache-cleaner-info">
               <div class="toggle-title">software version</div>
-              <div class="cache-stats-text" id="version-display">v3.5.0</div>
+              <div class="cache-stats-text" id="version-display">v3.5.1</div>
             </div>
             <button class="btn-s" id="btn-check-updates" onclick="checkForUpdates(true)" title="Check GitHub for newer releases">check for updates</button>
           </div>
@@ -375,7 +377,7 @@
   </div>
 
   <div id="toast"></div>
-  <script src="/js/particles.js?v=3.5.0"></script>
-  <script src="/js/app.js?v=3.5.0"></script>
+  <script src="/js/particles.js?v=3.5.1"></script>
+  <script src="/js/app.js?v=3.5.1"></script>
 </body>
 </html>
