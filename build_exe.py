@@ -5,7 +5,7 @@ import sys
 import zipfile
 
 def build():
-    print("=== Building crunchyroller v3.5.1 Standalone Executable ===")
+    print("=== Building crunchyroller v3.6.0 Standalone Executable ===")
     
     # 1. ensure pyinstaller is installed
     try:
@@ -56,7 +56,7 @@ def build():
         shutil.copytree(bin_src, bin_dst, dirs_exist_ok=True)
 
     readme_content = """========================================================================
-                      CRUNCHYROLLER v3.5.1
+                      CRUNCHYROLLER v3.6.0
 ========================================================================
 
 HOW TO RUN:
@@ -86,6 +86,23 @@ REQUIREMENTS:
    Required to display the native app window.
    If WebView2 is missing on your PC, the app will show a prompt to download
    and install it automatically from Microsoft.
+
+------------------------------------------------------------------------
+WHAT'S NEW IN v3.6.0:
+------------------------------------------------------------------------
+- Audio & Subtitle Only Mode (Addresses #15):
+  Download just audio tracks and subtitles without downloading video streams.
+  Select 'audio only (no video)' from the Video Quality dropdown in GUI, or pass
+  --no-video / --audio-only in CLI. Choose between .mka container (default), .mkv,
+  or standalone .m4a with companion subtitle files.
+- Anti-RateLimit Safe Mode & Pacing Controls (Addresses #14):
+  Added configurable delay between episode downloads (default 60s, with ±5s jitter)
+  and optional thread reduction to protect against KAT-3002 temporary blocks.
+- Redesigned History View:
+  Clean two-line episode card with series title, season/episode tags, quality,
+  relative timestamp, file size, status pill, and one-click show-in-folder button.
+- Progress & Phase Tracking:
+  Added detailed percentage indicators on sub-bars and clear phase logging.
 
 ------------------------------------------------------------------------
 WHAT'S NEW IN v3.5.1:
@@ -221,7 +238,7 @@ NEED HELP?
     print(f"\nSuccess! Portable app built at:\n{exe_path}\nREADME generated at:\n{readme_path}")
 
     # 4. create release zip archive
-    zip_name = "crunchyroller-v3.5.1-win64.zip"
+    zip_name = "crunchyroller-v3.6.0-win64.zip"
     zip_path = os.path.join(root, zip_name)
     if os.path.exists(zip_path):
         os.remove(zip_path)
