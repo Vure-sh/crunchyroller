@@ -1,6 +1,7 @@
 import hashlib
 import inspect
 import json
+import logging
 import os
 import queue
 import shutil
@@ -15,6 +16,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import requests
+
+logger = logging.getLogger("crunchyroll.downloader")
 
 from .api import (
     delete_stream,
@@ -839,9 +842,14 @@ def _prepare_media_track(
     audio_base_url, audio_rep_id = get_base_url(audio_set, False, audio_quality, server_index=server_index, bitrate_mode=bitrate_mode)
     if not audio_base_url or not audio_rep_id:
         raise RuntimeError("failed to get the audio base URL")
-    video_base_url, video_rep_id = get_base_url(video_set, True, video_quality, server_index=server_index, bitrate_mode=bitrate_mode)
-    if not video_base_url or not video_rep_id:
-        raise RuntimeError("failed to get the video base URL")
+
+    video_base_url, video_rep_id = None, None
+    video_keys = []
+    if video_quality and str(video_quality).lower() != "none" and video_set is not None:
+        video_base_url, video_rep_id = get_base_url(video_set, True, video_quality, server_index=server_index, bitrate_mode=bitrate_mode)
+        if not video_base_url or not video_rep_id:
+            raise RuntimeError("failed to get the video base URL")
+        video_keys = _keys_for_adaptation_set(keys, video_set)
 
     return {
         "audio_set": audio_set,
@@ -849,7 +857,7 @@ def _prepare_media_track(
         "audio_base_url": audio_base_url,
         "audio_rep_id": audio_rep_id,
         "video_set": video_set,
-        "video_keys": _keys_for_adaptation_set(keys, video_set),
+        "video_keys": video_keys,
         "video_base_url": video_base_url,
         "video_rep_id": video_rep_id,
         "period_duration_seconds": period_duration_seconds,
@@ -986,6 +994,20 @@ def download_episode(
                 "tracks": {},
             })
 
+    is_audio_only = bool(video_quality and str(video_quality).lower() == "none")
+    audio_format = str(cfg.get("audio_only_format", "mka")).lower()
+    if is_audio_only:
+        if audio_format == "mkv":
+            ext = ".mkv"
+        elif audio_format == "standalone":
+            ext = ".m4a"
+        else:
+            ext = ".mka"
+        quality_tag = " [audio]"
+    else:
+        ext = ".mkv"
+        quality_tag = f" [{video_quality}]"
+
     # Plex and Jellyfin standard layout: Series / Season (or Arc) / Series - SXXEYY - Title.mkv
     season_folder = resolve_season_folder(
         series_title=info.episode_metadata.series_title,
@@ -993,25 +1015,40 @@ def download_episode(
         season_title=getattr(info.episode_metadata, "season_title", ""),
     )
     output_dir = os.path.join(base_dir, series_title, season_folder)
+    if is_audio_only and audio_format == "standalone":
+        ep_subfolder = f"{series_title} - S{season_num:02d}E{ep_num:02d} - {ep_title}"
+        output_dir = os.path.join(output_dir, ep_subfolder)
     os.makedirs(output_dir, exist_ok=True)
-    filename = f"{series_title} - S{season_num:02d}E{ep_num:02d} - {ep_title} [{video_quality}].mkv"
+    filename = f"{series_title} - S{season_num:02d}E{ep_num:02d} - {ep_title}{quality_tag}{ext}"
     output_filename = os.path.join(output_dir, filename)
 
-    # Legacy file detection and seamless migration into Season subfolder
+    # Legacy file detection and seamless migration into Season / Episode subfolder
     legacy_candidates = [
+        os.path.join(base_dir, series_title, season_folder, filename),
         os.path.join(base_dir, series_title, f"Season {season_num:02d}", filename),
-        os.path.join(base_dir, series_title, f"{series_title} S{season_num:02d}E{ep_num:02d} - {ep_title} [{video_quality}].mkv"),
-        os.path.join(base_dir, series_title, f"{series_title} - S{season_num:02d}E{ep_num:02d} - {ep_title} [{video_quality}].mkv"),
-        os.path.join(output_dir, f"{series_title} S{season_num:02d}E{ep_num:02d} - {ep_title} [{video_quality}].mkv"),
+        os.path.join(base_dir, series_title, f"{series_title} S{season_num:02d}E{ep_num:02d} - {ep_title}{quality_tag}{ext}"),
+        os.path.join(base_dir, series_title, f"{series_title} - S{season_num:02d}E{ep_num:02d} - {ep_title}{quality_tag}{ext}"),
+        os.path.join(output_dir, f"{series_title} S{season_num:02d}E{ep_num:02d} - {ep_title}{quality_tag}{ext}"),
         os.path.join(".", series_title, f"Season {season_num:02d}", filename),
         os.path.join(".", series_title, season_folder, filename),
-        os.path.join(".", series_title, f"{series_title} S{season_num:02d}E{ep_num:02d} - {ep_title} [{video_quality}].mkv"),
-        os.path.join(".", series_title, f"{series_title} - S{season_num:02d}E{ep_num:02d} - {ep_title} [{video_quality}].mkv"),
+        os.path.join(".", series_title, f"{series_title} S{season_num:02d}E{ep_num:02d} - {ep_title}{quality_tag}{ext}"),
+        os.path.join(".", series_title, f"{series_title} - S{season_num:02d}E{ep_num:02d} - {ep_title}{quality_tag}{ext}"),
     ]
     for leg in legacy_candidates:
         if os.path.exists(leg) and not os.path.exists(output_filename):
             try:
                 shutil.move(leg, output_filename)
+                # If standalone, also migrate any loose companion subtitle files from parent directory
+                if is_audio_only and audio_format == "standalone":
+                    leg_dir = os.path.dirname(leg)
+                    stem = f"{series_title} - S{season_num:02d}E{ep_num:02d} - {ep_title}"
+                    if os.path.exists(leg_dir):
+                        for sub_candidate in os.listdir(leg_dir):
+                            if sub_candidate.startswith(stem) and (sub_candidate.endswith(".ass") or sub_candidate.endswith(".vtt")):
+                                try:
+                                    shutil.move(os.path.join(leg_dir, sub_candidate), os.path.join(output_dir, sub_candidate))
+                                except Exception:
+                                    pass
                 break
             except Exception:
                 output_filename = leg
@@ -1021,7 +1058,8 @@ def download_episode(
     # avoids network work, and avoids hanging on an episode already downloaded.
     if os.path.exists(output_filename) and not force_download:
         sz = os.path.getsize(output_filename)
-        if sz > 10 * 1024 * 1024:
+        min_valid_size = 1024 * 1024 if is_audio_only else 10 * 1024 * 1024
+        if sz > min_valid_size:
             print(f"Skipping (file already exists): {output_filename} ({sz / (1024*1024):.1f} MB)")
             return output_filename
         print(f"Existing file is corrupted/partial ({sz} bytes), re-downloading...")
@@ -1301,7 +1339,7 @@ def download_episode(
                 client, ep, content_id, audio_quality, video_quality, debug, server_index=server_index, bitrate_mode=bitrate_mode
             )
 
-            if i == 0:
+            if i == 0 and not is_audio_only:
                 video_download_args = (
                     prepared["video_base_url"],
                     prepared["video_rep_id"],
@@ -1312,6 +1350,7 @@ def download_episode(
                 )
 
             print(f"Downloading {track_title(version.audio_locale)} audio...")
+            track_type_name = "audio-only" if is_audio_only else "audio"
             try:
                 audio_file = download_parts(
                     prepared["audio_base_url"],
@@ -1321,7 +1360,7 @@ def download_episode(
                     ep_title=info.title,
                     progress_cb=progress_cb,
                     pool=shared_pool,
-                    track_type="audio",
+                    track_type=track_type_name,
                     period_duration_seconds=prepared["period_duration_seconds"],
                     pause_event=pause_event,
                     cancel_event=cancel_event,
@@ -1369,7 +1408,7 @@ def download_episode(
                     ep_title=info.title,
                     progress_cb=progress_cb,
                     pool=shared_pool,
-                    track_type="audio",
+                    track_type=track_type_name,
                     period_duration_seconds=prepared["period_duration_seconds"],
                     pause_event=pause_event,
                     cancel_event=cancel_event,
@@ -1410,7 +1449,7 @@ def download_episode(
         # All playback sessions remain active until the final cleanup block,
         # because manifests and licenses for later tracks may still depend on
         # their respective tokens.
-        if video_download_args is not None:
+        if video_download_args is not None and not is_audio_only:
             if cancel_event and cancel_event.is_set():
                 raise InterruptedError("Download cancelled by user")
             (
@@ -1492,8 +1531,10 @@ def download_episode(
                     resume=resume,
                 )
 
-        if not video_file:
+        if not video_file and not is_audio_only:
             raise RuntimeError("No video file downloaded!")
+        if is_audio_only and not audio_tracks:
+            raise RuntimeError("No audio file downloaded!")
 
         if cancel_event and cancel_event.is_set():
             raise InterruptedError("Download cancelled by user")
@@ -1517,14 +1558,27 @@ def download_episode(
         except Exception as exc:
             logger.debug("Could not fetch chapter markers: %s", exc)
 
-        temp_output_filename = output_filename + ".tmp.mkv"
+        # For standalone audio-only format or .m4a output, export companion subtitle files before muxing/cleanup
+        if (is_audio_only and audio_format == "standalone") or ext == ".m4a":
+            for sub in sub_tracks:
+                if sub.file and os.path.exists(sub.file):
+                    sub_ext = os.path.splitext(sub.file)[1] or ".ass"
+                    sub_dest = os.path.join(output_dir, f"{series_title} - S{season_num:02d}E{ep_num:02d} - {ep_title}.{sub.locale}{sub_ext}")
+                    try:
+                        shutil.copy2(sub.file, sub_dest)
+                        print(f"Exported standalone subtitle: {sub_dest}")
+                        logger.info("Exported standalone subtitle: %s", sub_dest)
+                    except Exception as err:
+                        logger.warning("Failed to export standalone subtitle %s: %s", sub_dest, err)
+
+        temp_output_filename = output_filename + ".tmp" + ext
         merge_everything(
             video_file=video_file,
             audio_tracks=audio_tracks,
             sub_tracks=sub_tracks,
             output_file=temp_output_filename,
             info=info,
-            video_quality=video_quality,
+            video_quality=video_quality if not is_audio_only else None,
             duration_seconds=prepared.get("period_duration_seconds"),
             chapters=chapters,
         )

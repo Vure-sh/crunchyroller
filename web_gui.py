@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import random
+import subprocess
 import sys
 import threading
 import time
@@ -88,11 +89,16 @@ STATE = {
         "subs_lang":     initial_cfg.get("subs_lang", "en-US"),
         "force_download": bool(initial_cfg.get("force_download", False)),
         "download_dir":  initial_cfg.get("download_dir", DEFAULT_DOWNLOAD_DIR),
-        "workers":       max(4, min(32, int(initial_cfg.get("workers", 16)))),
+        "workers":       max(1, min(32, int(initial_cfg.get("workers", 16)))),
         "enable_hedging": bool(initial_cfg.get("enable_hedging", False)),
         "enable_resume": bool(initial_cfg.get("enable_resume", True)),
         "enable_logging": bool(initial_cfg.get("enable_logging", True)),
         "bitrate_mode":  str(initial_cfg.get("bitrate_mode", "highest")),
+        "enable_antiratelimit": bool(initial_cfg.get("enable_antiratelimit", False)),
+        "antiratelimit_delay": max(5, min(180, int(initial_cfg.get("antiratelimit_delay", 60)))),
+        "antiratelimit_jitter": max(2, min(15, int(initial_cfg.get("antiratelimit_jitter", 5)))),
+        "antiratelimit_reduce_threads": bool(initial_cfg.get("antiratelimit_reduce_threads", True)),
+        "audio_only_format": str(initial_cfg.get("audio_only_format", "mka")),
     },
     "download": {
         "status":      "idle",
@@ -118,6 +124,28 @@ DOWNLOAD_PAUSE_EVENT.set()
 DOWNLOAD_CANCEL_EVENT = threading.Event()
 DOWNLOAD_CANCEL_EVENT.clear()
 
+
+def get_effective_cooldown() -> float:
+    """Calculate random-jittered episode cooldown delay for anti-ratelimit protection."""
+    with LOCK:
+        cfg = STATE["config"]
+        if cfg.get("enable_antiratelimit", False):
+            base_delay = float(cfg.get("antiratelimit_delay", 60))
+            jitter = float(cfg.get("antiratelimit_jitter", 5))
+            variance = random.uniform(-jitter, jitter)
+            return max(1.0, round(base_delay + variance, 2))
+        return random.uniform(1.5, 3.0)
+
+
+def get_effective_workers() -> int:
+    """Return effective download worker threads, capping to 2 when anti-ratelimit safe mode is enabled."""
+    with LOCK:
+        cfg = STATE["config"]
+        if cfg.get("enable_antiratelimit", False) and cfg.get("antiratelimit_reduce_threads", False):
+            return 2
+        return max(1, min(32, int(cfg.get("workers", 16))))
+
+
 STATE_STORE = StateStore()
 
 QUEUE = DownloadQueue(
@@ -126,6 +154,7 @@ QUEUE = DownloadQueue(
     cancel_event=DOWNLOAD_CANCEL_EVENT,
     lock=LOCK,
     cooldown_range=(1.5, 3.0),
+    cooldown_provider=get_effective_cooldown,
     state_store=STATE_STORE,
 )
 
@@ -332,6 +361,11 @@ def get_log_tail(lines: int = 150) -> str:
 
 def _log(msg):
     logger.info("%s", msg)
+    try:
+        if "QUEUE" in globals() and QUEUE:
+            QUEUE.log(msg)
+    except Exception:
+        pass
     with LOCK:
         STATE["download"]["log"].append(f"[{time.strftime('%H:%M:%S')}] {msg}")
         if len(STATE["download"]["log"]) > 200:
@@ -409,7 +443,10 @@ def _run_download(items, vq, aq, al, sl, force_download=False):
                 if track_type.endswith("-paused"):
                     track_type = track_type[:-7]
 
-                if "audio" in track_type:
+                if "audio-only" in track_type:
+                    within_ep = frac * 0.95
+                    display_track = "audio"
+                elif "audio" in track_type:
                     # Audio represents the first 15% of the episode
                     within_ep = frac * 0.15
                     display_track = "audio"
@@ -432,13 +469,13 @@ def _run_download(items, vq, aq, al, sl, force_download=False):
                     STATE["download"]["segs_total"]  = tot
                     STATE["download"]["speed"]        = "paused" if is_paused else (speed or "")
                     STATE["download"]["track"]        = display_track
-                    STATE["download"]["track_pct"]   = round(frac * 100, 1) if "mux" not in track_type else 100.0
+                    STATE["download"]["track_pct"]   = round(within_ep * 100.0, 1) if "mux" not in track_type else 98.0
                     STATE["download"]["overall_pct"] = min(overall, cap)
                     STATE["download"]["complete_file"] = complete_file
                     STATE["download"]["status"]      = "paused" if is_paused else "running"
 
             download_dir = STATE["config"].get("download_dir", DEFAULT_DOWNLOAD_DIR)
-            workers_cnt = max(4, min(32, int(STATE["config"].get("workers", 16))))
+            workers_cnt = get_effective_workers()
             hedging = bool(STATE["config"].get("enable_hedging", False))
             resume = bool(STATE["config"].get("enable_resume", True))
             bitrate_mode = str(STATE["config"].get("bitrate_mode", "highest"))
@@ -453,10 +490,10 @@ def _run_download(items, vq, aq, al, sl, force_download=False):
                 resume=resume,
                 bitrate_mode=bitrate_mode,
                 concurrency_config=ConcurrencyConfig(
-                    min_workers=max(4, workers_cnt // 2),
+                    min_workers=1 if workers_cnt <= 2 else max(2, workers_cnt // 2),
                     max_workers=workers_cnt,
                     initial_workers=workers_cnt,
-                    pool_size=workers_cnt * 2,
+                    pool_size=max(4, min(64, workers_cnt * 2)),
                     hedging_enabled=hedging,
                 ),
             )
@@ -577,6 +614,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 STATE["download"]["active_job"] = q_state["active_job"]
                 STATE["download"]["history"] = q_state["history"]
                 STATE["download"]["tasks"] = q_state.get("tasks", [])
+                STATE["download"]["log"] = q_state.get("log", [])
 
                 # Keep STATE in sync with config.json on disk so manual user edits are immediately honored
                 disk_cfg = load_config()
@@ -837,7 +875,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/config":
             with LOCK:
                 disk_cfg = load_config()
-                for k in ("video_quality", "audio_quality", "audio_lang", "subs_lang", "force_download", "download_dir", "workers", "enable_hedging", "enable_resume", "enable_logging", "bitrate_mode"):
+                for k in ("video_quality", "audio_quality", "audio_lang", "subs_lang", "force_download", "download_dir", "workers", "enable_hedging", "enable_resume", "enable_logging", "bitrate_mode", "enable_antiratelimit", "antiratelimit_delay", "antiratelimit_jitter", "antiratelimit_reduce_threads", "audio_only_format"):
                     if k in data:
                         val = data[k]
                         if k == "download_dir":
@@ -848,11 +886,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                 val = os.path.abspath(os.path.expanduser(val))
                         elif k == "workers":
                             try:
-                                val = max(4, min(32, int(val)))
+                                val = max(1, min(32, int(val)))
                             except (TypeError, ValueError):
                                 val = 16
-                        elif k in ("enable_hedging", "enable_resume", "force_download", "enable_logging"):
+                        elif k == "antiratelimit_delay":
+                            try:
+                                val = max(5, min(180, int(val)))
+                            except (TypeError, ValueError):
+                                val = 60
+                        elif k == "antiratelimit_jitter":
+                            try:
+                                val = max(2, min(15, int(val)))
+                            except (TypeError, ValueError):
+                                val = 5
+                        elif k in ("enable_hedging", "enable_resume", "force_download", "enable_logging", "enable_antiratelimit", "antiratelimit_reduce_threads"):
                             val = bool(val)
+                        elif k == "audio_only_format":
+                            val = str(val or "mka").lower().strip()
+                            if val not in ("mka", "mkv", "standalone"):
+                                val = "mka"
                         STATE["config"][k] = val
                         disk_cfg[k] = val
                         if k == "enable_logging":
@@ -870,7 +922,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if CURRENT_WINDOW is not None:
                 try:
                     import webview
-                    res = CURRENT_WINDOW.create_file_dialog(webview.FOLDER_DIALOG)
+                    dialog_type = getattr(webview.FileDialog, "FOLDER", None) if hasattr(webview, "FileDialog") else getattr(webview, "FOLDER_DIALOG", None)
+                    res = CURRENT_WINDOW.create_file_dialog(dialog_type)
                     if res and len(res) > 0:
                         chosen = res[0]
                 except Exception as e:
@@ -989,7 +1042,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             al = data.get("audio_lang", c["audio_lang"])
             sl = data.get("subs_lang", c["subs_lang"])
             fd = bool(data.get("force_download", c.get("force_download", False)))
-            workers = int(data.get("workers", c.get("workers", 16)))
+            if c.get("enable_antiratelimit") and c.get("antiratelimit_reduce_threads"):
+                workers = 2
+            else:
+                workers = int(data.get("workers", c.get("workers", 16)))
             enable_hedging = bool(data.get("enable_hedging", c.get("enable_hedging", False)))
             enable_resume = bool(data.get("enable_resume", c.get("enable_resume", True)))
             bitrate_mode = str(data.get("bitrate_mode") or c.get("bitrate_mode") or "highest").strip()

@@ -6,13 +6,21 @@ let ddAudioQual = null;
 let ddAudio = null;
 let ddSubs = null;
 let ddBitrate = null;
+let ddAudioFormat = null;
 
 const VIDEO_OPTIONS = [
+  { val: 'none', label: 'none (audio & subs only)' },
   { val: '1080p', label: '1080p' },
   { val: '720p', label: '720p' },
   { val: '480p', label: '480p' },
   { val: '360p', label: '360p' },
   { val: '240p', label: '240p' }
+];
+
+const AUDIO_FORMAT_OPTIONS = [
+  { val: 'mka', label: '.mka (audio + subs)' },
+  { val: 'mkv', label: '.mkv (audio + subs)' },
+  { val: 'standalone', label: 'standalone files (.m4a + .ass)' }
 ];
 
 const AUDIO_QUAL_OPTIONS = [
@@ -317,6 +325,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   ddAudio = new CheckboxDropdown('dd-audio', 'al', AUDIO_OPTIONS, 'ja-JP', () => saveCfg(), true);
   ddSubs = new CheckboxDropdown('dd-subs', 'sl', SUBS_OPTIONS, 'en-US', () => saveCfg(), true);
   ddBitrate = new CheckboxDropdown('dd-bitrate', 'bitrate-mode', BITRATE_OPTIONS, 'highest', () => saveCfg(), false);
+  ddAudioFormat = new CheckboxDropdown('dd-audio-format', 'audio-only-format', AUDIO_FORMAT_OPTIONS, 'mka', () => saveCfg(), false);
 
   const state = await api('/api/state');
   applyState(state);
@@ -392,6 +401,13 @@ function applyState(state) {
       const bmEl = document.getElementById('bitrate-mode');
       if (bmEl) bmEl.value = state.config.bitrate_mode;
     }
+
+    if (ddAudioFormat && state.config.audio_only_format) {
+      ddAudioFormat.setValue(state.config.audio_only_format, false);
+    } else if (state.config.audio_only_format) {
+      const aofEl = document.getElementById('audio-only-format');
+      if (aofEl) aofEl.value = state.config.audio_only_format;
+    }
     const forceDownload = document.getElementById('force-download');
     if (forceDownload) forceDownload.checked = Boolean(state.config.force_download);
 
@@ -417,6 +433,39 @@ function applyState(state) {
     if (dlDirInput && state.config.download_dir !== undefined) {
       dlDirInput.value = (state.config.download_dir === 'anime') ? '' : (state.config.download_dir || '');
     }
+
+    if (state.config.enable_antiratelimit !== undefined) {
+      const en = Boolean(state.config.enable_antiratelimit);
+      const m = document.getElementById('enable-antiratelimit');
+      if (m) m.checked = en;
+      const s = document.getElementById('antiratelimit-enable-sub');
+      if (s) s.checked = en;
+    }
+
+    if (state.config.antiratelimit_delay !== undefined) {
+      const dSlider = document.getElementById('antiratelimit-delay-slider');
+      if (dSlider) {
+        dSlider.value = state.config.antiratelimit_delay;
+        const dBadge = document.getElementById('antiratelimit-delay-badge');
+        if (dBadge) dBadge.textContent = `${state.config.antiratelimit_delay}s`;
+      }
+    }
+
+    if (state.config.antiratelimit_jitter !== undefined) {
+      const jSlider = document.getElementById('antiratelimit-jitter-slider');
+      if (jSlider) {
+        jSlider.value = state.config.antiratelimit_jitter;
+        const jBadge = document.getElementById('antiratelimit-jitter-badge');
+        if (jBadge) jBadge.textContent = `± ${state.config.antiratelimit_jitter}s`;
+      }
+    }
+
+    if (state.config.antiratelimit_reduce_threads !== undefined) {
+      const rtCheck = document.getElementById('antiratelimit-reduce-threads');
+      if (rtCheck) rtCheck.checked = Boolean(state.config.antiratelimit_reduce_threads);
+    }
+
+    updateAntiRateLimitPreview();
 
     updateQuickFormatBar();
   }
@@ -538,6 +587,15 @@ async function saveCfg() {
   const resumeVal = Boolean(document.getElementById('enable-resume')?.checked);
   const loggingVal = Boolean(document.getElementById('enable-logging')?.checked);
   const bitrateVal = ddBitrate ? ddBitrate.value : (document.getElementById('bitrate-mode')?.value || 'highest');
+  const audioFormatVal = ddAudioFormat ? ddAudioFormat.value : (document.getElementById('audio-only-format')?.value || 'mka');
+
+  const enableAntiRateLimit = Boolean(
+    document.getElementById('enable-antiratelimit')?.checked ||
+    document.getElementById('antiratelimit-enable-sub')?.checked
+  );
+  const arDelayVal = parseInt(document.getElementById('antiratelimit-delay-slider')?.value || '60', 10);
+  const arJitterVal = parseInt(document.getElementById('antiratelimit-jitter-slider')?.value || '5', 10);
+  const arReduceThreads = Boolean(document.getElementById('antiratelimit-reduce-threads')?.checked);
 
   await api('/api/config', {
     video_quality: vqVal,
@@ -550,15 +608,35 @@ async function saveCfg() {
     enable_resume: resumeVal,
     enable_logging: loggingVal,
     bitrate_mode: bitrateVal,
+    audio_only_format: audioFormatVal,
+    enable_antiratelimit: enableAntiRateLimit,
+    antiratelimit_delay: arDelayVal,
+    antiratelimit_jitter: arJitterVal,
+    antiratelimit_reduce_threads: arReduceThreads,
   });
 
+  updateAntiRateLimitPreview();
   updateQuickFormatBar();
 }
 
 // Tab switcher
 function switchTab(tabName) {
+  const m = document.getElementById('enable-antiratelimit');
+  const s = document.getElementById('antiratelimit-enable-sub');
+  if (m && s) {
+    if (tabName === 'settings') {
+      m.checked = s.checked;
+    } else if (tabName === 'antiratelimit') {
+      s.checked = m.checked;
+    }
+  }
+
   document.querySelectorAll('.nav-tab').forEach(tab => {
-    tab.classList.toggle('active', tab.dataset.tab === tabName);
+    if (tabName === 'antiratelimit') {
+      tab.classList.toggle('active', tab.dataset.tab === 'settings');
+    } else {
+      tab.classList.toggle('active', tab.dataset.tab === tabName);
+    }
   });
 
   document.querySelectorAll('.tab-pane').forEach(pane => {
@@ -567,7 +645,8 @@ function switchTab(tabName) {
     pane.style.display = isActive ? 'block' : 'none';
   });
 
-  if (tabName === 'settings') {
+  if (tabName === 'settings' || tabName === 'antiratelimit') {
+    updateAntiRateLimitPreview();
     updatePartialsCacheStatus();
     loadHistory();
   }
@@ -579,6 +658,71 @@ function onWorkersSlider(val) {
   if (badge) badge.textContent = `${val} workers`;
 }
 
+// Anti-Ratelimit Controls & Preview
+function openAntiRatelimitView() {
+  const m = document.getElementById('enable-antiratelimit');
+  const s = document.getElementById('antiratelimit-enable-sub');
+  if (m && s) {
+    s.checked = m.checked;
+  }
+  updateAntiRateLimitPreview();
+  switchTab('antiratelimit');
+}
+
+function onAntiRateLimitDelay(val) {
+  const badge = document.getElementById('antiratelimit-delay-badge');
+  if (badge) badge.textContent = `${val}s`;
+  updateAntiRateLimitPreview();
+}
+
+function onAntiRateLimitJitter(val) {
+  const badge = document.getElementById('antiratelimit-jitter-badge');
+  if (badge) badge.textContent = `± ${val}s`;
+  updateAntiRateLimitPreview();
+}
+
+function onAntiRateLimitMasterToggle(checked) {
+  toggleAntiRateLimit(checked);
+}
+
+function toggleAntiRateLimit(checked) {
+  const m = document.getElementById('enable-antiratelimit');
+  const s = document.getElementById('antiratelimit-enable-sub');
+  if (m) m.checked = checked;
+  if (s) s.checked = checked;
+  if (checked) {
+    const rt = document.getElementById('antiratelimit-reduce-threads');
+    if (rt) rt.checked = true;
+  }
+  updateAntiRateLimitPreview();
+  saveCfg();
+}
+
+function updateAntiRateLimitPreview() {
+  const m = document.getElementById('enable-antiratelimit');
+  const s = document.getElementById('antiratelimit-enable-sub');
+  const isEnabled = Boolean((m && m.checked) || (s && s.checked));
+  if (m && m.checked !== isEnabled) m.checked = isEnabled;
+  if (s && s.checked !== isEnabled) s.checked = isEnabled;
+
+  const delay = parseInt(document.getElementById('antiratelimit-delay-slider')?.value || '60', 10);
+  const jitter = parseInt(document.getElementById('antiratelimit-jitter-slider')?.value || '5', 10);
+  const reduceThreads = Boolean(document.getElementById('antiratelimit-reduce-threads')?.checked);
+
+  const minWait = Math.max(1, delay - jitter);
+  const maxWait = delay + jitter;
+
+  const previewVal = document.getElementById('pacing-preview-value');
+  if (previewVal) {
+    previewVal.textContent = `${minWait}s – ${maxWait}s`;
+  }
+
+  const box = document.getElementById('antiratelimit-feature-box');
+  if (box) {
+    box.classList.toggle('active', isEnabled);
+  }
+}
+
 // Quick format bar label sync
 function updateQuickFormatBar() {
   const vqVal = ddVideo ? ddVideo.value : (document.getElementById('vq')?.value || '1080p');
@@ -587,7 +731,7 @@ function updateQuickFormatBar() {
   const slVal = ddSubs ? ddSubs.value : (document.getElementById('sl')?.value || 'en-US');
 
   const vqEl = document.getElementById('qf-vq');
-  if (vqEl) vqEl.textContent = vqVal;
+  if (vqEl) vqEl.textContent = vqVal === 'none' ? 'audio only' : vqVal;
 
   const aqEl = document.getElementById('qf-aq');
   if (aqEl) aqEl.textContent = aqVal;
@@ -882,6 +1026,76 @@ async function clearHistory() {
   }
 }
 
+function getHistorySeriesTitle(item) {
+  if (item.series_title && item.series_title.trim() && item.series_title.toLowerCase() !== 'unknown') {
+    return item.series_title.trim();
+  }
+  if (item.output_file) {
+    const norm = item.output_file.replace(/\\/g, '/');
+    const parts = norm.split('/').filter(Boolean);
+    const animeIdx = parts.lastIndexOf('anime');
+    if (animeIdx !== -1 && animeIdx + 1 < parts.length) {
+      return parts[animeIdx + 1];
+    }
+    if (parts.length >= 3) {
+      return parts[parts.length - 3];
+    }
+    const fileName = parts[parts.length - 1] || '';
+    const dashMatch = fileName.match(/^(.*?)\s*-\s*S\d+/i);
+    if (dashMatch) return dashMatch[1].trim();
+  }
+  if (item.season_title && item.season_title.trim()) {
+    return item.season_title.trim();
+  }
+  if (item.label) {
+    const m = item.label.match(/^(.*?)\s*[-—]\s*S\d+/i);
+    if (m && m[1].trim()) return m[1].trim();
+  }
+  return 'Anime';
+}
+
+function getHistoryEpTag(item) {
+  if (item.season_number && item.episode_number) {
+    return `S${String(item.season_number).padStart(2, '0')}E${String(item.episode_number).padStart(2, '0')}`;
+  }
+  if (item.label) {
+    const m = item.label.match(/S\d+E\d+/i);
+    if (m) return m[0].toUpperCase();
+  }
+  if (item.episode_number) {
+    return `EP ${item.episode_number}`;
+  }
+  return '';
+}
+
+function getHistoryEpTitle(item) {
+  if (item.title && item.title.trim() && item.title !== item.ep_id) {
+    return item.title.trim();
+  }
+  if (item.label) {
+    const cleaned = item.label.replace(/^S\d+E\d+\s*[-—]\s*/i, '').trim();
+    if (cleaned) return cleaned;
+    return item.label;
+  }
+  return item.ep_id || '';
+}
+
+function formatRelativeTime(timestamp) {
+  if (!timestamp) return '';
+  const ts = timestamp * (timestamp < 1e11 ? 1000 : 1);
+  const diffSec = Math.floor((Date.now() - ts) / 1000);
+  if (diffSec < 0) return 'just now';
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour}h ago`;
+  const diffDay = Math.floor(diffHour / 24);
+  if (diffDay < 7) return `${diffDay}d ago`;
+  const d = new Date(ts);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 // Load completed and canceled history
 async function loadHistory() {
   const list = document.getElementById('history-list');
@@ -901,17 +1115,65 @@ async function loadHistory() {
         const left = document.createElement('div');
         left.className = 'history-left';
 
+        // Line 1: [Icon] Series Title [Badge]
+        const topLine = document.createElement('div');
+        topLine.className = 'history-top-line';
+
         const statusIco = document.createElement('span');
         statusIco.className = `ep-ico ep-ico-${item.status === 'completed' ? 'done' : 'err'}`;
         statusIco.textContent = item.status === 'completed' ? '✓' : (item.status === 'canceled' ? '✕' : '!');
 
-        const title = document.createElement('span');
-        title.className = 'history-title';
-        title.textContent = item.label || item.title || item.ep_id;
-        title.title = title.textContent;
+        const seriesTitle = getHistorySeriesTitle(item);
+        const seriesEl = document.createElement('span');
+        seriesEl.className = 'history-series';
+        seriesEl.textContent = seriesTitle;
+        seriesEl.title = seriesTitle;
 
-        left.append(statusIco, title);
+        topLine.append(statusIco, seriesEl);
 
+        const epTag = getHistoryEpTag(item);
+        if (epTag) {
+          const epTagEl = document.createElement('span');
+          epTagEl.className = 'history-ep-tag';
+          epTagEl.textContent = epTag;
+          topLine.appendChild(epTagEl);
+        }
+
+        // Line 2: Episode Title • Quality • Time
+        const subLine = document.createElement('div');
+        subLine.className = 'history-sub-line';
+
+        const epTitle = getHistoryEpTitle(item);
+        const epTitleEl = document.createElement('span');
+        epTitleEl.className = 'history-ep-title';
+        epTitleEl.textContent = epTitle;
+        epTitleEl.title = epTitle;
+        subLine.appendChild(epTitleEl);
+
+        if (item.video_quality) {
+          const sep = document.createElement('span');
+          sep.className = 'history-sep';
+          sep.textContent = '•';
+          const qualEl = document.createElement('span');
+          qualEl.className = 'history-quality';
+          qualEl.textContent = item.video_quality === 'none' ? 'audio only' : item.video_quality;
+          subLine.append(sep, qualEl);
+        }
+
+        const relTime = formatRelativeTime(item.finished_at);
+        if (relTime) {
+          const sep = document.createElement('span');
+          sep.className = 'history-sep';
+          sep.textContent = '•';
+          const timeEl = document.createElement('span');
+          timeEl.className = 'history-time';
+          timeEl.textContent = relTime;
+          subLine.append(sep, timeEl);
+        }
+
+        left.append(topLine, subLine);
+
+        // Right side: [Size] [Status Pill] [Folder Button]
         const right = document.createElement('div');
         right.className = 'history-right';
 
@@ -1578,12 +1840,12 @@ function updateProgressPanel(dl) {
     if (dl.complete_file) {
       const doneMb = (dl.segs_done / (1024 * 1024)).toFixed(1);
       const totalMb = (dl.segs_total / (1024 * 1024)).toFixed(1);
-      segsEl.textContent = `${doneMb} / ${totalMb} MB${trackSuffix}`;
+      segsEl.textContent = `${trackPct.toFixed(1)}% • ${doneMb} / ${totalMb} MB${trackSuffix}`;
     } else {
-      segsEl.textContent = `${dl.segs_done} / ${dl.segs_total} parts${trackSuffix}`;
+      segsEl.textContent = `${trackPct.toFixed(1)}% • ${dl.segs_done} / ${dl.segs_total} parts${trackSuffix}`;
     }
   } else if (dl.track) {
-    segsEl.textContent = dl.track;
+    segsEl.textContent = `${trackPct.toFixed(1)}% • ${dl.track}`;
   } else {
     segsEl.textContent = '';
   }

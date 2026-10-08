@@ -91,10 +91,6 @@
               </div>
             </div>
           </div>
-
-          <p class="hint">
-            paste your etp_rt cookie, or sign in directly with email & password.
-          </p>
         </div>
 
         <!-- Card 2: Quality & Formats -->
@@ -135,9 +131,6 @@
               <button class="btn-s" id="open-dir-btn" onclick="openDownloadFolder()" title="Open download folder in file manager">open</button>
             </div>
           </div>
-          <p class="hint">
-            episodes will be saved into Series / Season XX folders inside this directory.
-          </p>
         </div>
 
         <!-- Card 4: Download & Episode Tree -->
@@ -198,7 +191,7 @@
             <div class="prog-bar" id="pbar-overall"></div>
           </div>
           <div class="dl-bar-label">
-            <span class="dl-bar-title">track</span>
+            <span class="dl-bar-title">episode</span>
             <span id="dl-segs" class="dl-bar-pct"></span>
           </div>
           <div class="prog-bar-wrap prog-bar-wrap-sm">
@@ -236,10 +229,7 @@
               <label for="workers-slider">download threads</label>
               <span class="slider-val-badge" id="workers-badge">16 workers</span>
             </div>
-            <input type="range" id="workers-slider" class="range-slider" min="4" max="32" step="2" value="16" oninput="onWorkersSlider(this.value)" onchange="saveCfg()">
-            <p class="hint">
-              How many parts to download at once (4–32). Crank it up if you have fast internet.
-            </p>
+            <input type="range" id="workers-slider" class="range-slider" min="1" max="32" step="1" value="16" oninput="onWorkersSlider(this.value)" onchange="saveCfg()">
           </div>
 
           <div class="field" style="margin-top: 16px;">
@@ -252,6 +242,12 @@
             </p>
           </div>
 
+          <div class="field" style="margin-top: 16px;">
+            <label for="audio-only-format">audio-only format</label>
+            <div id="dd-audio-format" class="select-dropdown"></div>
+            <input type="hidden" id="audio-only-format" value="mka">
+          </div>
+
           <!-- Zombie Stream Purger -->
           <div class="cache-cleaner-box">
             <div class="cache-cleaner-info">
@@ -262,7 +258,18 @@
           </div>
         </div>
 
-        <!-- Section 2: Storage & Logs -->
+        <!-- Section 2: Anti-Ratelimit -->
+        <div class="card" id="card-antiratelimit-preview" style="padding: 14px 22px;">
+          <div class="antiratelimit-feature-box" id="antiratelimit-feature-box">
+            <label class="check-row" for="enable-antiratelimit" style="margin: 0; cursor: pointer;">
+              <input type="checkbox" id="enable-antiratelimit" onchange="toggleAntiRateLimit(this.checked)">
+              <span class="toggle-title">anti-ratelimit</span>
+            </label>
+            <button class="btn-s" id="btn-open-antiratelimit" onclick="openAntiRatelimitView()">configure →</button>
+          </div>
+        </div>
+
+        <!-- Section 3: Storage & Logs -->
         <div class="card">
           <div class="card-label">storage & logs</div>
 
@@ -329,6 +336,66 @@
           <div id="history-list" class="history-list">
             <div class="history-empty">no downloads yet</div>
           </div>
+        </div>
+
+      </div>
+
+      <!-- ============================================== -->
+      <!-- TAB 3: DEDICATED ANTI-RATELIMIT VIEW           -->
+      <!-- ============================================== -->
+      <div id="tab-antiratelimit" class="tab-pane" style="display:none;">
+
+        <div class="subpage-header">
+          <button class="btn-s btn-back" onclick="switchTab('settings')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+            <span>back</span>
+          </button>
+        </div>
+
+        <!-- Section 1: Anti-Ratelimit Delay & Jitter -->
+        <div class="card">
+          <div style="margin-bottom: 16px;">
+            <label class="check-row" for="antiratelimit-enable-sub" style="margin:0; cursor: pointer;">
+              <input type="checkbox" id="antiratelimit-enable-sub" onchange="toggleAntiRateLimit(this.checked)">
+              <span class="toggle-title" style="font-size: 0.86rem; font-weight: 600;">anti-ratelimit</span>
+            </label>
+          </div>
+
+          <!-- Base Delay Slider -->
+          <div class="field">
+            <div class="slider-header-row">
+              <label for="antiratelimit-delay-slider">delay between episodes</label>
+              <span class="slider-val-badge" id="antiratelimit-delay-badge">60s</span>
+            </div>
+            <input type="range" id="antiratelimit-delay-slider" class="range-slider" min="5" max="180" step="5" value="60" oninput="onAntiRateLimitDelay(this.value)" onchange="saveCfg()">
+          </div>
+
+          <!-- Random Jitter Slider -->
+          <div class="field" style="margin-top: 16px;">
+            <div class="slider-header-row">
+              <label for="antiratelimit-jitter-slider">random variance (jitter)</label>
+              <span class="slider-val-badge" id="antiratelimit-jitter-badge">± 5s</span>
+            </div>
+            <input type="range" id="antiratelimit-jitter-slider" class="range-slider" min="2" max="15" step="1" value="5" oninput="onAntiRateLimitJitter(this.value)" onchange="saveCfg()">
+          </div>
+
+          <!-- Live Pacing Preview -->
+          <div class="pacing-preview-box">
+            <span class="pacing-preview-label">effective wait</span>
+            <span class="pacing-preview-value" id="pacing-preview-value">55s – 65s</span>
+          </div>
+        </div>
+
+        <!-- Section 2: Concurrency & Threads -->
+        <div class="card">
+          <div class="card-label">concurrency</div>
+
+          <label class="check-row" for="antiratelimit-reduce-threads" style="margin: 4px 0 0 0;">
+            <input type="checkbox" id="antiratelimit-reduce-threads" onchange="saveCfg()" checked>
+            <span class="toggle-title">reduce download threads (slower download)</span>
+          </label>
         </div>
 
       </div>

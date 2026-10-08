@@ -55,7 +55,7 @@ def find_ffmpeg() -> str:
 
 
 def merge_everything(
-    video_file: str,
+    video_file: Optional[str],
     audio_tracks: List[MediaTrack],
     sub_tracks: List[MediaTrack],
     output_file: str,
@@ -65,7 +65,7 @@ def merge_everything(
     chapters: Optional[List[Dict[str, Any]]] = None,
 ) -> None:
     """
-    Muxes video, multi-audio dubs, and subtitle tracks into a single MKV container.
+    Muxes video (optional), multi-audio dubs, and subtitle tracks into a single container (MKV/MKA).
     Inputs are fragmented MP4 streams whose timestamps are meaningful. Keep
     them intact while stream-copying; regenerating PTS globally can turn a
     small source offset into an audible/video sync error.
@@ -74,16 +74,22 @@ def merge_everything(
 
     args = [ffmpeg_bin, "-y"]
 
-    # Video input (stream 0)
-    args.extend(["-i", video_file])
+    has_video = bool(video_file and os.path.exists(video_file))
 
-    # Audio inputs (streams 1 .. N)
+    # Video input (stream 0, if present)
+    if has_video:
+        args.extend(["-i", video_file])
+
+    # Audio inputs
     for audio in audio_tracks:
         args.extend(["-i", audio.file])
 
-    # Subtitle inputs (streams N+1 .. M)
+    # Subtitle inputs
     for sub in sub_tracks:
         args.extend(["-i", sub.file])
+
+    audio_offset = 1 if has_video else 0
+    is_m4a = output_file.lower().endswith(".m4a")
 
     chapters_file = None
     chapters_input_idx = None
@@ -93,37 +99,41 @@ def merge_everything(
             chapters_file = output_file + ".chapters.txt"
             with open(chapters_file, "w", encoding="utf-8") as f:
                 f.write(chapters_content)
-            chapters_input_idx = 1 + len(audio_tracks) + len(sub_tracks)
+            chapters_input_idx = audio_offset + len(audio_tracks) + len(sub_tracks)
             args.extend(["-i", chapters_file])
         except Exception as exc:
             logger.warning("Failed to prepare chapters metadata: %s", exc)
             chapters_file = None
             chapters_input_idx = None
 
-    # Map video track
-    args.extend(["-map", "0:v:0"])
+    # Map video track (if present)
+    if has_video:
+        args.extend(["-map", "0:v:0"])
 
     # Map audio tracks
     for i in range(len(audio_tracks)):
-        args.extend(["-map", f"{1 + i}:a:0"])
+        args.extend(["-map", f"{audio_offset + i}:a:0"])
 
-    # Map subtitle tracks
-    for j in range(len(sub_tracks)):
-        args.extend(["-map", f"{1 + len(audio_tracks) + j}"])
+    # Map subtitle tracks (skip embedding into pure .m4a audio container)
+    if not is_m4a:
+        for j in range(len(sub_tracks)):
+            args.extend(["-map", f"{audio_offset + len(audio_tracks) + j}"])
 
     # Map chapters
     if chapters_input_idx is not None:
         args.extend(["-map_chapters", str(chapters_input_idx)])
 
     # Codec copying
-    args.extend(["-c:v", "copy", "-c:a", "copy"])
-    if sub_tracks:
+    if has_video:
+        args.extend(["-c:v", "copy"])
+    args.extend(["-c:a", "copy"])
+    if sub_tracks and not is_m4a:
         args.extend(["-c:s", "copy"])
 
     # Video metadata (quality title and BPS / NUMBER_OF_BYTES tags for MediaInfo)
-    if video_quality:
-        args.extend(["-metadata:s:v:0", f"title={video_quality}"])
-    if os.path.exists(video_file):
+    if has_video:
+        if video_quality:
+            args.extend(["-metadata:s:v:0", f"title={video_quality}"])
         try:
             v_size = os.path.getsize(video_file)
             if v_size > 0:
@@ -166,15 +176,16 @@ def merge_everything(
         if a_size and a_size > 0:
             args.extend([f"-metadata:s:a:{i}", f"NUMBER_OF_BYTES={a_size}"])
 
-    # Subtitle metadata
-    for j, sub in enumerate(sub_tracks):
-        lang_code = LANGUAGE_CODES.get(locale_base(sub.locale), locale_base(sub.locale))
-        base_title = track_title(locale_base(sub.locale))
-        title = f"{base_title} (CC)" if sub.is_cc else track_title(sub.locale)
-        args.extend([
-            f"-metadata:s:s:{j}", f"language={lang_code}",
-            f"-metadata:s:s:{j}", f"title={title}",
-        ])
+    # Subtitle metadata and dispositions (only when embedded into MKV/MKA)
+    if not is_m4a:
+        for j, sub in enumerate(sub_tracks):
+            lang_code = LANGUAGE_CODES.get(locale_base(sub.locale), locale_base(sub.locale))
+            base_title = track_title(locale_base(sub.locale))
+            title = f"{base_title} (CC)" if sub.is_cc else track_title(sub.locale)
+            args.extend([
+                f"-metadata:s:s:{j}", f"language={lang_code}",
+                f"-metadata:s:s:{j}", f"title={title}",
+            ])
 
     # Track dispositions. Explicit defaults take precedence; retain the
     # historical first-track fallback for callers that do not set is_default.
@@ -186,19 +197,20 @@ def merge_everything(
         disposition = "default" if i == default_audio_index else "0"
         args.extend([f"-disposition:a:{i}", disposition])
 
-    default_subtitle_index = next(
-        (i for i, track in enumerate(sub_tracks) if track.is_default),
-        0 if sub_tracks else -1,
-    )
-    for j, sub in enumerate(sub_tracks):
-        parts = ["default"] if j == default_subtitle_index else ["0"]
-        if sub.is_cc:
-            parts = [p for p in parts if p != "0"]  # drop the "0" placeholder
-            parts.append("hearing_impaired")
-            if not parts:
-                parts = ["hearing_impaired"]
-        disposition = "+".join(parts) if parts else "0"
-        args.extend([f"-disposition:s:{j}", disposition])
+    if not is_m4a:
+        default_subtitle_index = next(
+            (i for i, track in enumerate(sub_tracks) if track.is_default),
+            0 if sub_tracks else -1,
+        )
+        for j, sub in enumerate(sub_tracks):
+            parts = ["default"] if j == default_subtitle_index else ["0"]
+            if sub.is_cc:
+                parts = [p for p in parts if p != "0"]  # drop the "0" placeholder
+                parts.append("hearing_impaired")
+                if not parts:
+                    parts = ["hearing_impaired"]
+            disposition = "+".join(parts) if parts else "0"
+            args.extend([f"-disposition:s:{j}", disposition])
 
     # Global metadata tags (fixed season_number and episode_number)
     meta_title = (
@@ -246,7 +258,7 @@ def merge_everything(
                 pass
 
     # Clean up intermediate temporary files
-    if os.path.exists(video_file):
+    if video_file and os.path.exists(video_file):
         try:
             os.remove(video_file)
         except OSError:
@@ -260,7 +272,7 @@ def merge_everything(
                 pass
 
     for sub in sub_tracks:
-        if os.path.exists(sub.file):
+        if not is_m4a and os.path.exists(sub.file):
             try:
                 os.remove(sub.file)
             except OSError:

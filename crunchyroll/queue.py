@@ -268,6 +268,7 @@ class DownloadQueue:
         cancel_event: Optional[threading.Event] = None,
         lock: Optional[threading.RLock] = None,
         cooldown_range: tuple = (1.5, 2.5),
+        cooldown_provider: Optional[Callable[[], float]] = None,
         max_history: int = 50,
         state_store: Optional[StateStore] = None,
     ):
@@ -279,6 +280,7 @@ class DownloadQueue:
 
         self.client_factory = client_factory or (lambda: CrunchyrollHttpClient())
         self.cooldown_range = cooldown_range
+        self.cooldown_provider = cooldown_provider
         self.max_history = max_history
         self.state_store = state_store
 
@@ -824,7 +826,10 @@ class DownloadQueue:
         if track_type.endswith("-paused"):
             track_type = track_type[:-7]
 
-        if "audio" in track_type:
+        if "audio-only" in track_type:
+            within_ep = frac * 0.95
+            display_track = "audio"
+        elif "audio" in track_type:
             within_ep = frac * 0.15
             display_track = "audio"
         elif "mux" in track_type:
@@ -838,6 +843,18 @@ class DownloadQueue:
             display_track = "video"
 
         with self.lock:
+            prev_track = getattr(self, "_last_phase_track", None)
+            if display_track != prev_track:
+                self._last_phase_track = display_track
+                if display_track == "audio":
+                    self.log_messages.append(f"[{time.strftime('%H:%M:%S')}] downloading audio ({job.audio_quality})...")
+                elif display_track == "video":
+                    self.log_messages.append(f"[{time.strftime('%H:%M:%S')}] downloading video ({job.video_quality})...")
+                elif display_track == "muxing":
+                    self.log_messages.append(f"[{time.strftime('%H:%M:%S')}] muxing {job.label}...")
+                if len(self.log_messages) > 200:
+                    self.log_messages.pop(0)
+
             tot_batch = max(1, self.total_batch_count)
             comp_batch = self.completed_batch_count
             ep_base = (comp_batch / tot_batch) * 100
@@ -849,7 +866,7 @@ class DownloadQueue:
             self.total_segs = tot
             self.speed = "paused" if is_paused else (speed or "")
             self.track = display_track
-            self.track_pct = round(frac * 100, 1) if "mux" not in track_type else 100.0
+            self.track_pct = round(within_ep * 100.0, 1) if "mux" not in track_type else 98.0
             self.overall_pct = min(overall, cap)
             self.complete_file = complete_file
             if is_paused:
@@ -899,7 +916,17 @@ class DownloadQueue:
             # Jittered cooldown between consecutive items in batch
             # Runs while active_job is None so cancel_current() cannot accidentally cancel next job during cooldown!
             if needs_cooldown:
-                cooldown = random.uniform(*self.cooldown_range)
+                if callable(self.cooldown_provider):
+                    try:
+                        cooldown = float(self.cooldown_provider())
+                    except Exception:
+                        cooldown = random.uniform(*self.cooldown_range)
+                else:
+                    cooldown = random.uniform(*self.cooldown_range)
+
+                if cooldown >= 2.0:
+                    self.log(f"anti-ratelimit: pausing {cooldown:.1f}s before next episode...")
+
                 end_time = time.time() + cooldown
                 while time.time() < end_time:
                     if self.cancel_all_flag:
@@ -920,6 +947,7 @@ class DownloadQueue:
                 self.speed = ""
                 self.track = "starting"
                 self.track_pct = 0.0
+                self._last_phase_track = None
                 if not self.cancel_all_flag:
                     self.cancel_event.clear()
 
@@ -979,10 +1007,10 @@ class DownloadQueue:
                     resume=getattr(job, "enable_resume", True),
                     bitrate_mode=getattr(job, "bitrate_mode", "highest"),
                     concurrency_config=ConcurrencyConfig(
-                        min_workers=max(4, getattr(job, "workers", 16) // 2),
-                        max_workers=max(4, min(32, getattr(job, "workers", 16))),
-                        initial_workers=max(4, min(32, getattr(job, "workers", 16))),
-                        pool_size=max(8, min(64, getattr(job, "workers", 16) * 2)),
+                        min_workers=1 if getattr(job, "workers", 16) <= 2 else max(2, getattr(job, "workers", 16) // 2),
+                        max_workers=max(1, min(32, getattr(job, "workers", 16))),
+                        initial_workers=max(1, min(32, getattr(job, "workers", 16))),
+                        pool_size=max(4, min(64, getattr(job, "workers", 16) * 2)),
                         hedging_enabled=bool(getattr(job, "enable_hedging", False)),
                     ),
                 )

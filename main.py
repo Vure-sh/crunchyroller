@@ -150,6 +150,10 @@ def process_url(client: CrunchyrollHttpClient, url: str, args: argparse.Namespac
     )
 
     video_quality = getattr(args, "quality_video", None) or getattr(args, "video_quality", "1080p")
+    if getattr(args, "no_video", False):
+        video_quality = "none"
+    if getattr(args, "audio_format", None):
+        save_config({"audio_only_format": args.audio_format})
     audio_quality = getattr(args, "quality_audio", None) or getattr(args, "audio_quality", "192k")
 
     workers = getattr(args, "workers", 8) or 8
@@ -267,7 +271,15 @@ def main() -> None:
         default="en-US",
         help='Subtitle language(s), comma-separated (e.g. "en-US,es-419"), or "all" for every available subtitle.',
     )
-    parser.add_argument("--video-quality", type=str, default="1080p", help="Video quality (1080p, 720p, 480p, 360p)")
+    parser.add_argument("--video-quality", type=str, default="1080p", help="Video quality (1080p, 720p, 480p, 360p, none)")
+    parser.add_argument("--no-video", "--audio-only", dest="no_video", action="store_true", help="Download only audio and subtitles (skip video)")
+    parser.add_argument(
+        "--audio-format",
+        type=str,
+        choices=["mka", "mkv", "standalone"],
+        default=None,
+        help="Container format when downloading without video (mka, mkv, or standalone)",
+    )
     parser.add_argument("--audio-quality", type=str, default="192k", help="Audio quality (192k, 96k)")
     parser.add_argument("--quality-video", type=str, default="", help="Alias for --video-quality")
     parser.add_argument("--quality-audio", type=str, default="", help="Alias for --audio-quality")
