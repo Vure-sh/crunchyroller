@@ -423,8 +423,10 @@ function applyState(state) {
       badgeTxt.textContent = 'connected (login)';
     } else if (state.auth_type === 'token') {
       badgeTxt.textContent = 'connected (token)';
+	  loadBrowseAnimes();
     } else {
       badgeTxt.textContent = 'connected';
+	  loadBrowseAnimes();
     }
   } else {
     badge.classList.remove('on');
@@ -3218,5 +3220,112 @@ async function contextMenuAction(action) {
     }
   } catch (err) {
     console.warn('Context menu action failed:', err);
+  }
+}
+
+// ==============================================
+// CATALOG (BROWSE API)
+// ==============================================
+
+async function copyUrlToDownload(url) {
+  try {
+    const input = document.getElementById('search-input');
+    if (input) {
+      input.value = url;
+      input.focus();
+      input.select();
+      //document.getElementById('download-panel').style.display = 'block';
+      switchTab('downloads');
+      searchSeries();
+    }
+  } catch (err) {
+    console.warn('copyUrlToDownload failed:', err);
+  }
+}
+
+async function loadBrowseAnimes() {
+  const badge = document.getElementById('badge');
+  const badgeTxt = document.getElementById('badge-txt');
+  
+  //only load if is connected and have a token
+  if (!badge || !badgeTxt || badgeTxt.textContent !== 'connected (token)') {
+    showToast('Please connect your account first (badge must show "connected (token)")', 'error');
+    return;
+  }
+ 
+  const loadingEl = document.getElementById('catalog-loading');
+  const errorEl = document.getElementById('catalog-error');
+  const listEl = document.getElementById('catalog-list');
+  
+  try {
+    loadingEl.style.display = 'flex';
+    errorEl.style.display = 'none';
+    listEl.innerHTML = '';
+    
+    const res = await api('/api/browse');
+    
+    if (!res || !res.success) {
+      throw new Error(res?.error || 'Error loading catalog');
+    }
+    
+    const data = res.data;
+    
+    // Render anime list
+    if (!data.data || !Array.isArray(data.data)) {
+      listEl.innerHTML = '<div class="catalog-empty">No animes found</div>';
+      return;
+    }
+    
+    listEl.innerHTML = data.data.map((anime, idx) => {
+      const id = anime.id || `anime-${idx + 1}`;
+      const title = anime.title || 'Untitled';
+      const type = anime.type || 'TV';
+      const year = anime.series_metadata?.series_launch_year || 'unknown';
+      const chapters = anime.series_metadata?.season_count + " seasons (" + anime.series_metadata?.episode_count + " episodes)" || 'unknown';
+      const description = anime.description || '';
+      
+      // Obtener imagen de 1080px de images.thumbnail
+      const thumbnails = anime.images?.poster_wide?.[0];
+      const imageUrl = thumbnails[thumbnails.length - 1]?.source || '/images/default-anime.jpg';
+      
+      // Obtener URL del linked_resource_key
+      const url = (anime.linked_resource_key || '').replace('cms:/', 'https://www.crunchyroll.com/');
+      
+      const audio_langs = anime.series_metadata?.audio_locales || ''
+      const subs_langs = anime.series_metadata?.subtitle_locales || ''
+      
+      return `
+        <div class="catalog-item" data-id="${id}">
+          <div class="catalog-item-header">
+            <div class="catalog-item-image">
+              <img class="catalog-img" src="${imageUrl}" alt="${title}" onerror="this.src='/images/default-anime.jpg'">
+            </div>
+            <div class="catalog-item-info">
+              <h3 class="catalog-item-title">${title}</h3>
+              <span class="catalog-item-type">${type}</span>
+              <span class="catalog-item-year">${year}</span>
+              <a href="#" class="catalog-item-link" title="Copy URL and show dashboard" onclick="copyUrlToDownload('${url}')">📥</a>
+              <span class="catalog-item-chapters">${chapters}</span>
+			  <br/>
+			  <br/>
+			  <span id="audio">Audio: ${audio_langs}</span><br/>
+			  <span id="subs">Subs: ${subs_langs}</span>
+            </div>
+          </div>
+          <p class="catalog-item-description">${description}</p>
+        </div>
+      `;
+    }).join('');
+    
+    if (!listEl.innerHTML) {
+      listEl.innerHTML = '<div class="catalog-empty">No animes found</div>';
+    }
+    
+  } catch (err) {
+    console.error('loadBrowseAnimes error:', err);
+    errorEl.textContent = 'Error: ' + (err.message || err);
+    errorEl.style.display = 'block';
+  } finally {
+    loadingEl.style.display = 'none';
   }
 }
