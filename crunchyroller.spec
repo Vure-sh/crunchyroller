@@ -8,7 +8,7 @@ datas = [(os.path.join(base_dir, 'web'), 'web')]
 
 binaries = []
 hiddenimports = [
-    'Crypto', 'pywidevine', 'pymp4', 'curl_cffi', 'web_gui', 'tkinter', 'tkinter.filedialog', 'xmltodict', 'sqlite3',
+    'Crypto', 'pywidevine', 'pymp4', 'curl_cffi', 'crunchyroll.server', 'tkinter', 'tkinter.filedialog', 'xmltodict', 'sqlite3',
     'clr', 'pythonnet', 'clr_loader', 'webview.platforms.winforms', 'webview.platforms.edgechromium'
 ]
 
@@ -31,7 +31,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['numpy', 'scipy', 'matplotlib'],
     noarchive=False,
     optimize=0,
 )

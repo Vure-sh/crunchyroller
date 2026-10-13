@@ -74,10 +74,11 @@ from crunchyroll.state_store import StateStore
 from crunchyroll.types import DEFAULT_DOWNLOAD_DIR
 
 # root folder for static web assets
-base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+_PROJECT_ROOT = getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+base_dir = _PROJECT_ROOT
 WEB_DIR = os.path.join(base_dir, "web")
 if not os.path.exists(WEB_DIR):
-    WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
+    WEB_DIR = os.path.join(_PROJECT_ROOT, "web")
 
 # global download & app state
 CURRENT_WINDOW = None
@@ -673,7 +674,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             partials_roots = [
                 os.path.join(dl_dir, ".cr_partials"),
                 os.path.join(os.path.abspath(DEFAULT_DOWNLOAD_DIR), ".cr_partials"),
-                os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cr_partials"),
+                os.path.join(_PROJECT_ROOT, ".cr_partials"),
             ]
             seen_roots = set()
             total_bytes = 0
@@ -1354,7 +1355,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             partials_roots = [
                 os.path.join(dl_dir, ".cr_partials"),
                 os.path.join(os.path.abspath(DEFAULT_DOWNLOAD_DIR), ".cr_partials"),
-                os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cr_partials"),
+                os.path.join(_PROJECT_ROOT, ".cr_partials"),
             ]
             seen_roots = set()
             freed_bytes = 0

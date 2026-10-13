@@ -48,7 +48,6 @@ queue_state.json
 Thumbs.db
 .ignore
 *.ignore
-tests/
 benchmarks/
 
 # Internal Agent & Review Artifacts

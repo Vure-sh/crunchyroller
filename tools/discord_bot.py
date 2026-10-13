@@ -13,6 +13,11 @@ import time
 from collections import deque
 from typing import Dict, List, Optional, Set
 
+# Ensure project root is in sys.path when run as standalone script
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
 import discord
 from discord import app_commands
 
@@ -931,15 +936,20 @@ async def cmd_cancel(interaction: discord.Interaction):
 
 def _load_env():
     """load .env file if it exists (no extra dependency needed)"""
-    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
-    if os.path.exists(env_path):
-        with open(env_path, "r") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, _, val = line.partition("=")
-                os.environ.setdefault(key.strip(), val.strip())
+    candidate_paths = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
+        os.path.join(_PROJECT_ROOT, ".env"),
+    ]
+    for env_path in candidate_paths:
+        if os.path.exists(env_path):
+            with open(env_path, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, _, val = line.partition("=")
+                    os.environ.setdefault(key.strip(), val.strip())
+            break
 
 
 def start_bot(token: Optional[str] = None):

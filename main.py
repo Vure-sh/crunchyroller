@@ -406,7 +406,7 @@ def main() -> None:
     # launch gui if asked or if we have no inputs
     if args.gui or len(sys.argv) == 1 or (not args.url and not args.file and not args.etp_rt and not args.email):
         ensure_webview2()
-        from web_gui import start_gui
+        from crunchyroll.server import start_gui
         start_gui(port=8000, use_browser=args.browser)
         return
 
