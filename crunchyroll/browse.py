@@ -9,8 +9,6 @@ from typing import Dict, Any, List, Optional
 import requests
 
 from .http_client import CrunchyrollHttpClient
-from crunchyroll.auth import load_config
-
 
 def get_browse_anime(
     client: CrunchyrollHttpClient,

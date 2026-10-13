@@ -2921,7 +2921,7 @@ textarea.multi-url-input::placeholder {
 }
 
 /* ==============================================
-   catalog (BROWSE API)
+   CATALOG (BROWSE API)
    ==============================================
 */
 .catalog-actions {
@@ -3084,10 +3084,6 @@ textarea.multi-url-input::placeholder {
   margin-bottom: 10px;
 }
 
-/* ==============================================
-   INICIALIZACIÓN
-   ==============================================
-*/
 .catalog-actions button {
   min-width: auto;
   padding: 6px 12px;
