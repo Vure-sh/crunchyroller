@@ -56,7 +56,14 @@ from .types import (
     PlaybackStream,
     SeasonEpisode,
 )
-from .utils import locale_base, resolve_season_folder, sanitize_filename, track_title
+from .utils import (
+    OutputPathInfo,
+    build_output_path,
+    locale_base,
+    resolve_season_folder,
+    sanitize_filename,
+    track_title,
+)
 
 MAX_WORKERS = 16
 MAX_RETRIES = 5
@@ -72,7 +79,7 @@ def _get_global_session_pool() -> SessionPool:
         if _GLOBAL_SESSION_POOL is None:
             _GLOBAL_SESSION_POOL = SessionPool(
                 config=ConcurrencyConfig(
-                    pool_size=32,
+                    pool_size=64,
                     min_workers=8,
                     max_workers=16,
                     initial_workers=16,
@@ -229,7 +236,7 @@ def download_parts(
             initial_workers=16,
             aimd_enabled=True,
             hedging_enabled=False,
-            pool_size=32,
+            pool_size=64,
         )
         pool = SessionPool(config=cfg)
         own_pool = True
@@ -1014,13 +1021,22 @@ def download_episode(
         season_number=season_num,
         season_title=getattr(info.episode_metadata, "season_title", ""),
     )
-    output_dir = os.path.join(base_dir, series_title, season_folder)
-    if is_audio_only and audio_format == "standalone":
-        ep_subfolder = f"{series_title} - S{season_num:02d}E{ep_num:02d} - {ep_title}"
-        output_dir = os.path.join(output_dir, ep_subfolder)
+    is_standalone_audio = bool(is_audio_only and audio_format == "standalone")
+    path_info = build_output_path(
+        base_dir=base_dir,
+        series_title=series_title,
+        season_folder=season_folder,
+        season_num=season_num,
+        ep_num=ep_num,
+        ep_title=ep_title,
+        quality_tag=quality_tag,
+        ext=ext,
+        ep_subfolder=True if is_standalone_audio else None,
+    )
+    output_dir = path_info.output_dir
     os.makedirs(output_dir, exist_ok=True)
-    filename = f"{series_title} - S{season_num:02d}E{ep_num:02d} - {ep_title}{quality_tag}{ext}"
-    output_filename = os.path.join(output_dir, filename)
+    filename = path_info.filename
+    output_filename = path_info.output_filename
 
     # Legacy file detection and seamless migration into Season / Episode subfolder
     legacy_candidates = [
@@ -1034,17 +1050,22 @@ def download_episode(
         os.path.join(".", series_title, f"{series_title} S{season_num:02d}E{ep_num:02d} - {ep_title}{quality_tag}{ext}"),
         os.path.join(".", series_title, f"{series_title} - S{season_num:02d}E{ep_num:02d} - {ep_title}{quality_tag}{ext}"),
     ]
+    if path_info.original_filename != filename:
+        legacy_candidates.extend([
+            os.path.join(output_dir, path_info.original_filename),
+            os.path.join(base_dir, series_title, season_folder, path_info.original_filename),
+        ])
     for leg in legacy_candidates:
         if os.path.exists(leg) and not os.path.exists(output_filename):
             try:
                 shutil.move(leg, output_filename)
                 # If standalone, also migrate any loose companion subtitle files from parent directory
-                if is_audio_only and audio_format == "standalone":
+                if is_standalone_audio:
                     leg_dir = os.path.dirname(leg)
-                    stem = f"{series_title} - S{season_num:02d}E{ep_num:02d} - {ep_title}"
+                    stem = path_info.stem
                     if os.path.exists(leg_dir):
                         for sub_candidate in os.listdir(leg_dir):
-                            if sub_candidate.startswith(stem) and (sub_candidate.endswith(".ass") or sub_candidate.endswith(".vtt")):
+                            if (sub_candidate.startswith(stem) or sub_candidate.startswith(path_info.original_stem)) and (sub_candidate.endswith(".ass") or sub_candidate.endswith(".vtt")):
                                 try:
                                     shutil.move(os.path.join(leg_dir, sub_candidate), os.path.join(output_dir, sub_candidate))
                                 except Exception:
@@ -1074,7 +1095,7 @@ def download_episode(
     shared_pool = SessionPool(
         config=concurrency_config
         or ConcurrencyConfig(
-            pool_size=32,
+            pool_size=64,
             min_workers=8,
             max_workers=16,
             initial_workers=16,
@@ -1563,7 +1584,7 @@ def download_episode(
             for sub in sub_tracks:
                 if sub.file and os.path.exists(sub.file):
                     sub_ext = os.path.splitext(sub.file)[1] or ".ass"
-                    sub_dest = os.path.join(output_dir, f"{series_title} - S{season_num:02d}E{ep_num:02d} - {ep_title}.{sub.locale}{sub_ext}")
+                    sub_dest = os.path.join(output_dir, f"{path_info.stem}.{sub.locale}{sub_ext}")
                     try:
                         shutil.copy2(sub.file, sub_dest)
                         print(f"Exported standalone subtitle: {sub_dest}")
@@ -1931,10 +1952,20 @@ def _download_episode_n_m3u8dl_re(
         season_number=season_num,
         season_title=getattr(info.episode_metadata, "season_title", ""),
     )
-    output_dir = os.path.join(base_dir, series_title, season_folder)
+    path_info = build_output_path(
+        base_dir=base_dir,
+        series_title=series_title,
+        season_folder=season_folder,
+        season_num=season_num,
+        ep_num=ep_num,
+        ep_title=ep_title,
+        quality_tag=f" [{video_quality}]",
+        ext=".mkv",
+    )
+    output_dir = path_info.output_dir
     os.makedirs(output_dir, exist_ok=True)
-    filename = f"{series_title} - S{season_num:02d}E{ep_num:02d} - {ep_title} [{video_quality}].mkv"
-    output_filename = os.path.join(output_dir, filename)
+    filename = path_info.filename
+    output_filename = path_info.output_filename
 
     # Legacy file detection and seamless migration into Season subfolder
     legacy_candidates = [
@@ -1947,6 +1978,11 @@ def _download_episode_n_m3u8dl_re(
         os.path.join(".", series_title, f"{series_title} S{season_num:02d}E{ep_num:02d} - {ep_title} [{video_quality}].mkv"),
         os.path.join(".", series_title, f"{series_title} - S{season_num:02d}E{ep_num:02d} - {ep_title} [{video_quality}].mkv"),
     ]
+    if path_info.original_filename != filename:
+        legacy_candidates.extend([
+            os.path.join(output_dir, path_info.original_filename),
+            os.path.join(base_dir, series_title, season_folder, path_info.original_filename),
+        ])
     for leg in legacy_candidates:
         if os.path.exists(leg) and not os.path.exists(output_filename):
             try:

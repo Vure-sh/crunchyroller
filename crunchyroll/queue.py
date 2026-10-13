@@ -1124,7 +1124,7 @@ class DownloadQueue:
                         min_workers=1 if getattr(job, "workers", 16) <= 2 else max(2, getattr(job, "workers", 16) // 2),
                         max_workers=max(1, min(32, getattr(job, "workers", 16))),
                         initial_workers=max(1, min(32, getattr(job, "workers", 16))),
-                        pool_size=max(4, min(64, getattr(job, "workers", 16) * 2)),
+                        pool_size=max(64, min(128, getattr(job, "workers", 16) * 4)),
                         hedging_enabled=bool(getattr(job, "enable_hedging", False)),
                     ),
                 )

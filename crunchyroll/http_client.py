@@ -29,7 +29,7 @@ class CrunchyrollHttpClient:
 
         self.session_pool = session_pool or SessionPool(
             config=ConcurrencyConfig(
-                pool_size=32,
+                pool_size=64,
                 max_retries=5,
                 backoff_factor=1.5,
                 timeout=20,

@@ -90,6 +90,20 @@ REQUIREMENTS:
    and install it automatically from Microsoft.
 
 ------------------------------------------------------------------------
+WHAT'S NEW IN v3.7.1:
+------------------------------------------------------------------------
+- Windows Long Path Budgeting (Closes #17):
+  Prevents [Errno 2] No such file or directory crashes on Windows when downloading
+  series with lengthy titles. Output filenames and intermediate muxing paths
+  are dynamically budgeted to remain safely within the 259-character MAX_PATH limit.
+- Safe Temporary Chapter Metadata:
+  FFmpeg chapter files are now created in the system temporary directory during muxing
+  instead of appending to the destination path, avoiding path overflow.
+- Connection Pool & Concurrency Expansion:
+  Increased HTTP connection pool capacities across the session pool and worker queues
+  to eliminate urllib3 connection pool exhaustion warnings during high concurrency.
+
+------------------------------------------------------------------------
 WHAT'S NEW IN v3.7.0:
 ------------------------------------------------------------------------
 - Multi-Anime Batch Fetching & Grouped Queue:

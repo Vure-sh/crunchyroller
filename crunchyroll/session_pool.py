@@ -86,7 +86,7 @@ class ConcurrencyConfig:
     hedge_min_delay: float = 1.5  # minimum delay in seconds before hedging
     max_retries: int = 5
     backoff_factor: float = 0.5
-    pool_size: int = 32
+    pool_size: int = 64
     timeout: int = 30
     chunk_size: int = 524288  # 512 KB read buffer
 
@@ -269,7 +269,7 @@ class SessionPool:
             backoff_factor=backoff_factor,
             timeout=timeout,
         )
-        self.max_pool_size = self.config.pool_size
+        self.max_pool_size = max(64, self.config.pool_size)
         self.max_retries = self.config.max_retries
         self.backoff_factor = self.config.backoff_factor
         self.timeout = self.config.timeout

@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from typing import Any, Dict, List, Optional
 
 from .types import EpisodeInfo, MediaTrack
@@ -96,9 +97,14 @@ def merge_everything(
     if chapters:
         try:
             chapters_content = generate_ffmetadata(chapters)
-            chapters_file = output_file + ".chapters.txt"
-            with open(chapters_file, "w", encoding="utf-8") as f:
-                f.write(chapters_content)
+            try:
+                fd, chapters_file = tempfile.mkstemp(prefix="cr_chap_", suffix=".txt")
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(chapters_content)
+            except Exception:
+                chapters_file = output_file + ".chapters.txt"
+                with open(chapters_file, "w", encoding="utf-8") as f:
+                    f.write(chapters_content)
             chapters_input_idx = audio_offset + len(audio_tracks) + len(sub_tracks)
             args.extend(["-i", chapters_file])
         except Exception as exc:

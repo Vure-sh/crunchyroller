@@ -1,8 +1,7 @@
-### What's Changed in v3.7.0
+### What's Changed in v3.7.1
 
-- **In-App Series Search (Closes #16)**: Search for anime directly inside the app, browse posters, and select multiple shows to download without having to copy-paste links from a browser.
-- **Download Multiple Anime at Once**: Paste multiple URLs or multi-select search results to download simultaneously—automatically organized into clean, separate tasks in the queue.
-- **Fixed Task Dismissal & Stuck Queue**: Fixed an issue where completed or failed tasks could not be cleared or dismissed from the queue drawer, and resolved stuck spinners on failed episodes.
-- **Lightweight Archive Option**: Added a `no-ffmpeg` build option for users who already have FFmpeg installed in system PATH.
+- **Windows Long Path Budgeting (Closes #17)**: Fixed `[Errno 2] No such file or directory` crashes on Windows when downloading shows with very long titles (e.g. *A Livid Lady's Guide to Getting Even...*). Output paths and intermediate muxing files (`.tmp.mkv`) are now dynamically budgeted to stay safely $\le 259$ characters (`MAX_PATH`) while preserving season/episode identifiers (`S01E08`), quality tags, and existing file compatibility.
+- **Safe Temporary Chapter Metadata**: Chapter markers during FFmpeg muxing are now written to the system temporary directory (via `tempfile`) instead of appending `.chapters.txt` to the destination filename, preventing path overflow during merge.
+- **Connection Pool Expansion**: Increased HTTP connection pool capacities across the session pool, downloader, and worker queues (scaling to 64–128 connections). This eliminates `[urllib3.connectionpool] Connection pool is full` warnings and reduces unnecessary TLS renegotiations under high worker concurrency.
 
-**Full Changelog**: https://github.com/Vure-sh/crunchyroller/compare/v3.6.0...v3.7.0
+**Full Changelog**: https://github.com/Vure-sh/crunchyroller/compare/v3.7.0...v3.7.1
