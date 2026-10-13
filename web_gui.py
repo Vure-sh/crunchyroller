@@ -654,9 +654,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # Usar el token del estado y obtener el idioma del sistema
             client = CrunchyrollHttpClient(etp_rt=STATE["etp_rt"], username=STATE.get("android_username") or None, password=STATE.get("android_password") or None)
             try:
-                from crunchyroll.browse import get_browse_animes
+                from crunchyroll.browse import get_browse_anime
                 # Obtener idioma del sistema (usar audio_language de config por defecto)
-                result = get_browse_animes(client, limit=36, debug=False)
+                result = get_browse_anime(client, limit=36, debug=False)
                 self._json({
                     "success": True,
                     "data": result,

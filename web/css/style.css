@@ -3018,7 +3018,7 @@ textarea.multi-url-input::placeholder {
   opacity: 1;
 }
 
-#audio, #subs{
+.catalog-audio, .catalog-subs{
 	color: var(--dim);
 	font-size: 0.65rem;
 }
