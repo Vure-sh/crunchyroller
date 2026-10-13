@@ -1484,7 +1484,18 @@ def unblock_bundled_files() -> int:
 def start_gui(port=8000, use_browser=False):
     """launch crunchyroller inside a native desktop pywebview window (or default browser)"""
     setup_logging()
-    srv = http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    srv = None
+    orig_port = port
+    for p in range(port, port + 50):
+        try:
+            srv = http.server.ThreadingHTTPServer(("127.0.0.1", p), Handler)
+            port = p
+            break
+        except OSError:
+            continue
+    if srv is None:
+        raise OSError(f"Could not bind to any port in range {orig_port}-{orig_port + 49}")
+
     server_thread = threading.Thread(target=srv.serve_forever, daemon=True)
     server_thread.start()
 
@@ -1534,7 +1545,19 @@ def start_gui(port=8000, use_browser=False):
                     QWebEnginePage.setFeaturePermission = _safe_perm
                 except Exception:
                     pass
+
+            shown = [False]
+            def _on_shown():
+                shown[0] = True
+            try:
+                CURRENT_WINDOW.events.shown += _on_shown
+            except Exception:
+                pass
+
+            start_t = time.time()
             webview.start(gui=gui_backend)
+            if not shown[0] and (time.time() - start_t) < 3.0:
+                raise RuntimeError("Native window failed to initialize or display")
         except Exception as e:
             logger.error("Native window launch failed: %s", e, exc_info=True)
             # only warn if webview2 is actually missing

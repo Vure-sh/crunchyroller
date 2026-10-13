@@ -374,6 +374,12 @@ def main() -> None:
         help="Enable persistent file logging to crunchyroller.log (enabled by default)",
     )
     parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port to run GUI web server on (default: 8000)",
+    )
+    parser.add_argument(
         "positional_url",
         nargs="?",
         default="",
@@ -407,7 +413,7 @@ def main() -> None:
     if args.gui or len(sys.argv) == 1 or (not args.url and not args.file and not args.etp_rt and not args.email):
         ensure_webview2()
         from crunchyroll.server import start_gui
-        start_gui(port=8000, use_browser=args.browser)
+        start_gui(port=args.port, use_browser=args.browser)
         return
 
     etp_rt = ""
