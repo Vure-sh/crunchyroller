@@ -75,10 +75,10 @@ def get_browse_anime_info() -> None:
         print(f"    ID: {item.get('id', 'N/A')}")
         print(f"    Type: {item.get('type', 'N/A')}")
         meta = item.get('series_metadata', 'N/A')
-        if meta.get("season_count",None) is not None and meta.get("episode_count",None) is not None:
+        if meta.get("season_count") is not None and meta.get("episode_count") is not None:
             print(f"    {meta.get('season_count')} seasons ({meta.get('episode_count')} episodes)")
         else:
-            print(f"    Uknown")
+            print("    Unknown")
         desc = item.get('description', 'N/A')
         if desc:
             print(f"    Description: {desc[:100]}...")
@@ -422,8 +422,10 @@ def main() -> None:
         default="",
         help="Optional URL of the episode/season/series to download (alternative to --url)",
     )
-    parser.add_argument("--recently", action="store_true",
-        help="List recently added anime and exit (required --etp-rt or --email USER --password PASS)",
+    parser.add_argument(
+        "--recently",
+        action="store_true",
+        help="List recently added anime catalog and exit",
     )
 
     args = parser.parse_args()
