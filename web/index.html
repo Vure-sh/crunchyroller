@@ -17,13 +17,21 @@
     </div>
 
     <nav class="nav-tabs" id="nav-tabs">
-      <button class="nav-tab active" data-tab="downloads" onclick="switchTab('downloads')">
+      <button class="nav-tab active" data-tab="dashboard" onclick="switchTab('dashboard')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
           <polyline points="7 10 12 15 17 10"></polyline>
           <line x1="12" y1="15" x2="12" y2="3"></line>
         </svg>
         <span>dashboard</span>
+      </button>
+      <button class="nav-tab" data-tab="browse" onclick="switchTab('browse')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+          <circle cx="8.5" cy="8.5" r="1.5"></circle>
+          <polyline points="21 15 16 10 5 21"></polyline>
+        </svg>
+        <span>Recently Added Anime</span>
       </button>
       <button class="nav-tab" data-tab="settings" onclick="switchTab('settings')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -60,7 +68,7 @@
       <!-- ============================================== -->
       <!-- TAB 1: MAIN DASHBOARD (FULL, UNSTRIPPED)      -->
       <!-- ============================================== -->
-      <div id="tab-downloads" class="tab-pane active">
+      <div id="tab-dashboard" class="tab-pane active">
 
         <!-- Card 1: Session / Auth -->
         <div class="card" id="session-card">
@@ -450,6 +458,47 @@
             <span class="toggle-title">reduce download threads (slower download)</span>
           </label>
         </div>
+
+      </div>
+
+      <!-- ============================================== -->
+      <!-- TAB 2: CATALOG (BROWSE API)                 -->
+      <!-- ============================================== -->
+      <div id="tab-browse" class="tab-pane" style="display:none;">
+
+        <div id="list-subpage-header">
+			<div class="card">
+			   <div class="card-label-row">
+				<button class="btn-s btn-back" onclick="switchTab('downloads')">
+				  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<polyline points="15 18 9 12 15 6"></polyline>
+				  </svg>
+				  <span>back</span>
+				</button>
+				<div class="card-label"><h2>Recently Added Anime</h2></div>
+				<div class="catalog-actions">
+				  <button class="btn-s" onclick="loadBrowseAnimes()" id="btn-load-catalog">
+					<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<polyline points="23 4 23 10 17 10"></polyline>
+						<polyline points="1 20 1 14 7 14"></polyline>
+						<path d="M3.51 9a9 9 0 0 1 14.13-3.36L23 10"></path>
+						<path d="M20.49 15a9 9 0 0 1-14.13 3.36L1 14"></path>
+					</svg>
+					<span>reload list</span>
+				  </button>
+				</div>
+			  </div>
+          </div>
+        </div>
+
+        <div class="card">
+			<div id="catalog-loading" class="loading-spinner" style="display:none;">
+				<div class="spinner"></div>
+				<span>loading...</span>
+			</div>
+			<div id="catalog-error" class="error-message" style="display:none;"></div>
+			<div id="catalog-list" class="catalog-list"></div>
+		</div>
 
       </div>
 

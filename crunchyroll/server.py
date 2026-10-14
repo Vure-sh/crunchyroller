@@ -650,6 +650,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 })
             return
 
+        elif path == "/api/browse":
+            # Get streaming anime from the Crunchyroll API
+            # Use the state token and get the system language
+            client = CrunchyrollHttpClient(etp_rt=STATE["etp_rt"], username=STATE.get("android_username") or None, password=STATE.get("android_password") or None)
+            try:
+                from crunchyroll.browse import get_browse_anime
+                # Get system language (use audio_language from config by default)
+                result = get_browse_anime(client, limit=36, debug=False)
+                self._json({
+                    "success": True,
+                    "data": result,
+                })
+            except Exception as e:
+                self._json({
+                    "success": False,
+                    "error": str(e),
+                }, 500)
+            return
+
         elif path == "/api/queue":
             self._json({
                 "success": True,
