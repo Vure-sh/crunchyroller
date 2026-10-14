@@ -3256,11 +3256,13 @@ async function loadBrowseAnimes() {
   const loadingEl = document.getElementById('catalog-loading');
   const errorEl = document.getElementById('catalog-error');
   const listEl = document.getElementById('catalog-list');
+  const countBadge = document.getElementById('catalog-count-badge');
 
   try {
     loadingEl.style.display = 'flex';
     errorEl.style.display = 'none';
     listEl.innerHTML = '';
+    if (countBadge) countBadge.style.display = 'none';
 
     const res = await api('/api/browse');
     if (!res || !res.success) {
@@ -3269,68 +3271,99 @@ async function loadBrowseAnimes() {
 
     const items = res.data?.data;
     if (!Array.isArray(items) || !items.length) {
-      listEl.innerHTML = '<div class="catalog-empty">No animes found</div>';
+      listEl.innerHTML = '<div class="catalog-empty">No anime found in broadcast catalog</div>';
       return;
+    }
+
+    if (countBadge) {
+      countBadge.textContent = `${items.length} titles`;
+      countBadge.style.display = 'inline-block';
     }
 
     listEl.innerHTML = items.map((anime, idx) => {
       const meta = anime.series_metadata || {};
       const id = anime.id || `anime-${idx + 1}`;
       const title = anime.title || 'Untitled';
-      const type = anime.type || 'TV';
-      const year = meta.series_launch_year || 'unknown';
-      const chapters = (meta.season_count != null && meta.episode_count != null)
-        ? `${meta.season_count} seasons (${meta.episode_count} episodes)`
-        : 'unknown';
-      const description = anime.description || '';
+      const type = (anime.type === 'movie_listing' || (meta.is_mature && meta.mature_blocked)) ? 'Movie' : 'Series';
+      const year = meta.series_launch_year || '';
 
-      // Prefer wide poster, fall back to tall poster; never assume the array exists
-      const poster = anime.images?.poster_wide?.[0] ?? anime.images?.poster_tall?.[0] ?? [];
-      const imageUrl = poster[poster.length - 1]?.source || '';
+      const seasonsCount = meta.season_count;
+      const episodesCount = meta.episode_count;
+      let episodesStr = '';
+      if (seasonsCount != null && episodesCount != null) {
+        episodesStr = `${seasonsCount} ${seasonsCount === 1 ? 'season' : 'seasons'} • ${episodesCount} ep`;
+      } else if (episodesCount != null) {
+        episodesStr = `${episodesCount} ep`;
+      }
 
-      const url = (anime.linked_resource_key || '')
-        .replace('cms:/', 'https://www.crunchyroll.com/');
+      const description = anime.description || meta.extended_description || '';
 
-      const audioLangs = [].concat(meta.audio_locales || []).join(', ');
-      const subsLangs = [].concat(meta.subtitle_locales || []).join(', ');
+      const tallList = anime.images?.poster_tall?.[0] || [];
+      const wideList = anime.images?.poster_wide?.[0] || [];
+      const posterSrc = (tallList[tallList.length - 1]?.source) || (wideList[wideList.length - 1]?.source) || '';
+
+      const seriesId = anime.id || (anime.linked_resource_key || '').replace(/.*\/series\//, '');
+      const url = `https://www.crunchyroll.com/series/${seriesId}`;
+
+      const audioLocales = (meta.audio_locales || []).map(l => l.split('-')[0].toUpperCase());
+      const uniqueAudios = Array.from(new Set(audioLocales)).slice(0, 4).join(', ');
+
+      const badges = [];
+      badges.push(`<span class="res-badge ${type === 'Movie' ? 'res-badge-movie' : ''}">${type}</span>`);
+      if (year) badges.push(`<span class="res-badge">${year}</span>`);
+      if (episodesStr) badges.push(`<span class="res-badge">${episodesStr}</span>`);
+      if (meta.is_subbed) badges.push('<span class="res-badge res-badge-sub">SUB</span>');
+      if (meta.is_dubbed) badges.push('<span class="res-badge res-badge-dub">DUB</span>');
 
       return `
-        <div class="catalog-item" data-id="${escapeHtml(id)}">
-          <div class="catalog-item-header">
-            <div class="catalog-item-image">
-              <img class="catalog-img" src="${escapeHtml(imageUrl)}" alt="${escapeHtml(title)}"
-                   loading="lazy" onerror="this.onerror=null; this.style.visibility='hidden'">
+        <div class="catalog-card" data-url="${escapeHtml(url)}" tabindex="0">
+          <div class="catalog-poster-box">
+            ${posterSrc
+              ? `<img class="catalog-poster" src="${escapeHtml(posterSrc)}" alt="${escapeHtml(title)}" loading="lazy" onerror="this.style.opacity='0.2'">`
+              : `<div class="catalog-poster catalog-poster-empty"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div>`
+            }
+          </div>
+          <div class="catalog-content">
+            <div class="catalog-title-row">
+              <h3 class="catalog-title" title="${escapeHtml(title)}">${escapeHtml(title)}</h3>
             </div>
-            <div class="catalog-item-info">
-              <h3 class="catalog-item-title">${escapeHtml(title)}</h3>
-              <span class="catalog-item-type">${escapeHtml(type)}</span>
-              <span class="catalog-item-year">${escapeHtml(year)}</span>
-              <a href="#" class="catalog-item-link" data-url="${escapeHtml(url)}"
-                 title="Copy URL and show dashboard">📥</a>
-              <span class="catalog-item-chapters">${escapeHtml(chapters)}</span>
-              <br/><br/>
-              <span class="catalog-audio">Audio: ${escapeHtml(audioLangs)}</span><br/>
-              <span class="catalog-subs">Subs: ${escapeHtml(subsLangs)}</span>
+            <div class="res-badges">${badges.join('')}</div>
+            ${description ? `<p class="catalog-desc" title="${escapeHtml(description)}">${escapeHtml(description)}</p>` : ''}
+            <div class="catalog-bottom-row">
+              ${uniqueAudios ? `<span class="catalog-langs" title="Audio: ${escapeHtml((meta.audio_locales || []).join(', '))}">audio: ${escapeHtml(uniqueAudios)}</span>` : '<span class="catalog-langs"></span>'}
+              <button type="button" class="btn-s btn-pri catalog-dl-btn" data-url="${escapeHtml(url)}" title="Fetch and download ${escapeHtml(title)}">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>download</span>
+              </button>
             </div>
           </div>
-          <p class="catalog-item-description">${escapeHtml(description)}</p>
         </div>
       `;
     }).join('');
 
-    // Event delegation instead of inline onclick with interpolated URLs
     listEl.onclick = (e) => {
-      const link = e.target.closest('.catalog-item-link');
-      if (!link) return;
-      e.preventDefault();
-      copyUrlToDownload(link.dataset.url);
+      const btn = e.target.closest('.catalog-dl-btn');
+      if (btn) {
+        e.preventDefault();
+        e.stopPropagation();
+        copyUrlToDownload(btn.dataset.url);
+        return;
+      }
+      const card = e.target.closest('.catalog-card');
+      if (card && card.dataset.url) {
+        copyUrlToDownload(card.dataset.url);
+      }
     };
   } catch (err) {
     console.error('loadBrowseAnimes error:', err);
     errorEl.textContent = 'Error: ' + (err.message || err);
     errorEl.style.display = 'block';
     toast('Could not load catalog', 'err');
-    browseLoaded = false; // allow retry on next tab visit
+    browseLoaded = false;
   } finally {
     loadingEl.style.display = 'none';
   }

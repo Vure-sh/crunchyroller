@@ -27,11 +27,12 @@
       </button>
       <button class="nav-tab" data-tab="browse" onclick="switchTab('browse')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-          <circle cx="8.5" cy="8.5" r="1.5"></circle>
-          <polyline points="21 15 16 10 5 21"></polyline>
+          <rect x="3" y="3" width="7" height="7"></rect>
+          <rect x="14" y="3" width="7" height="7"></rect>
+          <rect x="14" y="14" width="7" height="7"></rect>
+          <rect x="3" y="14" width="7" height="7"></rect>
         </svg>
-        <span>Recently Added Anime</span>
+        <span>recently added</span>
       </button>
       <button class="nav-tab" data-tab="settings" onclick="switchTab('settings')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -462,44 +463,41 @@
       </div>
 
       <!-- ============================================== -->
-      <!-- TAB 2: CATALOG (BROWSE API)                 -->
+      <!-- TAB 2: CATALOG (BROWSE API)                    -->
       <!-- ============================================== -->
       <div id="tab-browse" class="tab-pane" style="display:none;">
-
-        <div id="list-subpage-header">
-			<div class="card">
-			   <div class="card-label-row">
-				<button class="btn-s btn-back" onclick="switchTab('dashboard')">
-				  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					<polyline points="15 18 9 12 15 6"></polyline>
-				  </svg>
-				  <span>back</span>
-				</button>
-				<div class="card-label"><h2>Recently Added Anime</h2></div>
-				<div class="catalog-actions">
-				  <button class="btn-s" onclick="loadBrowseAnimes()" id="btn-load-catalog">
-					<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<polyline points="23 4 23 10 17 10"></polyline>
-						<polyline points="1 20 1 14 7 14"></polyline>
-						<path d="M3.51 9a9 9 0 0 1 14.13-3.36L23 10"></path>
-						<path d="M20.49 15a9 9 0 0 1-14.13 3.36L1 14"></path>
-					</svg>
-					<span>reload list</span>
-				  </button>
-				</div>
-			  </div>
+        <div class="card" id="catalog-card">
+          <div class="card-label-row">
+            <div class="catalog-header-left">
+              <button type="button" class="btn-s btn-back" onclick="switchTab('dashboard')" title="Back to dashboard">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+                <span>dashboard</span>
+              </button>
+              <div class="card-label">recently added anime</div>
+              <span id="catalog-count-badge" class="catalog-count-badge" style="display:none;"></span>
+            </div>
+            <div class="catalog-actions">
+              <button type="button" class="btn-s" onclick="loadBrowseAnimes()" id="btn-load-catalog" title="Refresh recently added anime list">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="23 4 23 10 17 10"></polyline>
+                  <polyline points="1 20 1 14 7 14"></polyline>
+                  <path d="M3.51 9a9 9 0 0 1 14.13-3.36L23 10"></path>
+                  <path d="M20.49 15a9 9 0 0 1-14.13 3.36L1 14"></path>
+                </svg>
+                <span>refresh</span>
+              </button>
+            </div>
           </div>
+
+          <div id="catalog-loading" class="catalog-loading" style="display:none;">
+            <div class="spinner"></div>
+            <span>fetching Crunchyroll broadcast catalog...</span>
+          </div>
+          <div id="catalog-error" class="catalog-error" style="display:none;"></div>
+          <div id="catalog-list" class="catalog-grid"></div>
         </div>
-
-        <div class="card">
-			<div id="catalog-loading" class="loading-spinner" style="display:none;">
-				<div class="spinner"></div>
-				<span>loading...</span>
-			</div>
-			<div id="catalog-error" class="error-message" style="display:none;"></div>
-			<div id="catalog-list" class="catalog-list"></div>
-		</div>
-
       </div>
 
     </div>
