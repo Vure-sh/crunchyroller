@@ -467,7 +467,7 @@
       <!-- ============================================== -->
       <div id="tab-browse" class="tab-pane" style="display:none;">
         <div class="card" id="catalog-card">
-          <div class="card-label-row">
+          <div class="card-label-row catalog-header-row">
             <div class="catalog-header-left">
               <button type="button" class="btn-s btn-back" onclick="switchTab('dashboard')" title="Back to dashboard">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -475,10 +475,19 @@
                 </svg>
                 <span>dashboard</span>
               </button>
-              <div class="card-label">recently added anime</div>
-              <span id="catalog-count-badge" class="catalog-count-badge" style="display:none;"></span>
+              <div class="catalog-search-wrap">
+                <svg class="catalog-search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input type="text" id="catalog-filter-input" class="catalog-filter-input" placeholder="search animes..." oninput="filterCatalog(this.value)" autocomplete="off">
+                <button type="button" id="catalog-filter-clear" class="catalog-filter-clear" onclick="clearCatalogFilter()" style="display:none;" title="Clear filter">&times;</button>
+              </div>
             </div>
             <div class="catalog-actions">
+              <button type="button" class="btn-s" id="catalog-select-all-btn" onclick="toggleSelectAllCatalog()" title="Toggle select all visible titles">
+                <span>select all</span>
+              </button>
               <button type="button" class="btn-s" onclick="loadBrowseAnimes()" id="btn-load-catalog" title="Refresh recently added anime list">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <polyline points="23 4 23 10 17 10"></polyline>
@@ -487,6 +496,32 @@
                   <path d="M20.49 15a9 9 0 0 1-14.13 3.36L1 14"></path>
                 </svg>
                 <span>refresh</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Multi-select action bar when items are selected -->
+          <div id="catalog-batch-bar" class="catalog-batch-bar" style="display:none;">
+            <div class="catalog-batch-info">
+              <span id="catalog-selected-count">0 animes selected</span>
+            </div>
+            <div class="catalog-batch-actions">
+              <button type="button" class="btn-s catalog-batch-fetch" onclick="fetchSelectedCatalog()" title="Fetch selected anime into dashboard tree">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+                <span>fetch selected</span>
+              </button>
+              <button type="button" class="btn-s btn-pri catalog-batch-dl" onclick="instantDownloadSelectedCatalog()" title="Directly enqueue all episodes to download queue">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>instant download</span>
+              </button>
+              <button type="button" class="btn-s btn-clear" onclick="selectAllCatalog(false)" title="Clear selection">
+                <span>cancel</span>
               </button>
             </div>
           </div>
