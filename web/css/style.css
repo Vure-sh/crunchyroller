@@ -3062,24 +3062,34 @@ textarea.multi-url-input::placeholder {
 }
 
 .catalog-card.selected {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.4);
-  box-shadow: 0 0 10px rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: #ffffff;
+  box-shadow: 0 0 0 1px #ffffff, 0 8px 24px rgba(0, 0, 0, 0.7);
+  transform: translateY(-2px);
 }
 
-.catalog-card-cb-wrap {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  z-index: 2;
-  background: rgba(0, 0, 0, 0.75);
-  border-radius: 4px;
-  padding: 3px;
-  display: flex;
+.catalog-selected-badge {
+  display: none;
   align-items: center;
-  justify-content: center;
-  backdrop-filter: blur(4px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  gap: 4px;
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #000;
+  background: #ffffff;
+  padding: 2px 7px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.catalog-card.selected .catalog-selected-badge {
+  display: inline-flex;
+}
+
+.catalog-card.selected .catalog-poster-box {
+  border-color: rgba(255, 255, 255, 0.5);
 }
 
 .catalog-poster-box {

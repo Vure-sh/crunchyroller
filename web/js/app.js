@@ -3374,9 +3374,6 @@ function renderCatalogList() {
 
     return `
       <div class="catalog-card ${isSelected ? 'selected' : ''}" data-id="${escapeHtml(id)}" data-url="${escapeHtml(url)}" tabindex="0">
-        <div class="catalog-card-cb-wrap" onclick="event.stopPropagation()">
-          <input type="checkbox" class="cb-custom catalog-select-cb" data-id="${escapeHtml(id)}" ${isSelected ? 'checked' : ''} title="Select anime">
-        </div>
         <div class="catalog-poster-box">
           ${posterSrc
             ? `<img class="catalog-poster" src="${escapeHtml(posterSrc)}" alt="${escapeHtml(title)}" loading="lazy" onerror="this.style.opacity='0.2'">`
@@ -3386,6 +3383,12 @@ function renderCatalogList() {
         <div class="catalog-content">
           <div class="catalog-title-row">
             <h3 class="catalog-title" title="${escapeHtml(title)}">${escapeHtml(title)}</h3>
+            <div class="catalog-selected-badge">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              <span>selected</span>
+            </div>
           </div>
           <div class="res-badges">${badges.join('')}</div>
           ${description ? `<p class="catalog-desc" title="${escapeHtml(description)}">${escapeHtml(description)}</p>` : ''}
@@ -3429,15 +3432,7 @@ function renderCatalogList() {
       return;
     }
 
-    // 3. Checkbox click
-    const cb = e.target.closest('.catalog-select-cb');
-    if (cb) {
-      e.stopPropagation();
-      toggleSelectCatalogCard(cb.dataset.id, cb.checked);
-      return;
-    }
-
-    // 4. Clicking the card body / poster toggles selection without accidental download
+    // 3. Clicking anywhere on the card toggles its selection state
     const card = e.target.closest('.catalog-card');
     if (card && card.dataset.id) {
       toggleSelectCatalogCard(card.dataset.id);
@@ -3459,8 +3454,6 @@ function toggleSelectCatalogCard(id, forceValue = null) {
   const card = document.querySelector(`.catalog-card[data-id="${id}"]`);
   if (card) {
     card.classList.toggle('selected', isSelected);
-    const cb = card.querySelector('.catalog-select-cb');
-    if (cb) cb.checked = isSelected;
   }
 
   updateCatalogBatchBar();
@@ -3481,8 +3474,6 @@ function toggleSelectAllCatalog() {
       selectedCatalogIds.delete(id);
     }
     card.classList.toggle('selected', newSelection);
-    const cb = card.querySelector('.catalog-select-cb');
-    if (cb) cb.checked = newSelection;
   });
 
   updateCatalogBatchBar();
@@ -3493,8 +3484,6 @@ function selectAllCatalog(select) {
     selectedCatalogIds.clear();
     document.querySelectorAll('.catalog-card').forEach(card => {
       card.classList.remove('selected');
-      const cb = card.querySelector('.catalog-select-cb');
-      if (cb) cb.checked = false;
     });
     updateCatalogBatchBar();
   } else {
