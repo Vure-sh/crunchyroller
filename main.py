@@ -48,43 +48,6 @@ from crunchyroll.downloader import download_episode, download_season, download_s
 from crunchyroll.http_client import CrunchyrollHttpClient
 from crunchyroll.session_pool import ConcurrencyConfig
 
-def get_browse_anime_info() -> None:
-    """
-    Get and show Crunchyroll streaming anime on console.
-
-    Args:
-        client: CrunchyrollHttpClient instance with authenticated token.
-        limit: Maximum number of animes to display (default: 36).
-    """
-    from crunchyroll.browse import get_browse_anime
-    
-    print("\n" + "="*60)
-    print("ANIMES ON BROADCAST")
-    print("="*60)
-    client = CrunchyrollHttpClient(etp_rt="", username=None, password=None)
-    result = get_browse_anime(client, limit=36, debug=False)
-    
-    # Show summary
-    print(f"\nTotal available animes: {result.get('total', 'N/A')}")
-    print(f"Displayed animes: {len(result.get('data', []))}")
-    
-    # Display each anime
-    items = result.get('data', [])
-    for i, item in enumerate(items, 1):
-        print(f"\n[{i}] {item.get('title', 'N/A')}")
-        print(f"    ID: {item.get('id', 'N/A')}")
-        print(f"    Type: {item.get('type', 'N/A')}")
-        meta = item.get('series_metadata', 'N/A')
-        if meta.get("season_count") is not None and meta.get("episode_count") is not None:
-            print(f"    {meta.get('season_count')} seasons ({meta.get('episode_count')} episodes)")
-        else:
-            print("    Unknown")
-        desc = item.get('description', 'N/A')
-        if desc:
-            print(f"    Description: {desc[:100]}...")
-    
-    print("\n" + "="*60 + "\n")
-
 
 def is_webview2_installed() -> bool:
     """check if WebView2 runtime is installed on Windows"""
@@ -422,11 +385,6 @@ def main() -> None:
         default="",
         help="Optional URL of the episode/season/series to download (alternative to --url)",
     )
-    parser.add_argument(
-        "--recently",
-        action="store_true",
-        help="List recently added anime catalog and exit",
-    )
 
     args = parser.parse_args()
     if args.no_log:
@@ -452,15 +410,10 @@ def main() -> None:
         args.url = args.positional_url
 
     # launch gui if asked or if we have no inputs
-    if args.gui or len(sys.argv) == 1 or (not args.url and not args.file and not args.etp_rt and not args.email and not args.recently):
+    if args.gui or len(sys.argv) == 1 or (not args.url and not args.file and not args.etp_rt and not args.email):
         ensure_webview2()
         from crunchyroll.server import start_gui
         start_gui(port=args.port, use_browser=args.browser)
-        return
-
-    # Show recently added anime if requested.
-    if args.recently:
-        get_browse_anime_info()
         return
 
     etp_rt = ""
@@ -492,7 +445,6 @@ def main() -> None:
 
         from crunchyroll.api import get_seasons, parse_url_type
         kind, cid = parse_url_type(args.url)
-
         series_id = cid
         series_title = ""
 

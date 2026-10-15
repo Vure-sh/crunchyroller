@@ -650,25 +650,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 })
             return
 
-        elif path == "/api/browse":
-            client = CrunchyrollHttpClient(etp_rt=STATE.get("etp_rt") or None, username=STATE.get("android_username") or None, password=STATE.get("android_password") or None)
-            with LOCK:
-                subs_lang = STATE["config"].get("subs_lang", "en-US")
-            locale = subs_lang if subs_lang and subs_lang.lower() not in ("all", "*") else "en-US"
-            try:
-                from crunchyroll.browse import get_browse_anime
-                result = get_browse_anime(client, limit=36, locale=locale, debug=False)
-                self._json({
-                    "success": True,
-                    "data": result,
-                })
-            except Exception as e:
-                self._json({
-                    "success": False,
-                    "error": str(e),
-                }, 500)
-            return
-
         elif path == "/api/queue":
             self._json({
                 "success": True,
