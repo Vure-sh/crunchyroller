@@ -691,6 +691,10 @@ function switchTab(tabName) {
     } else if (tabName === 'antiratelimit') {
       s.checked = m.checked;
     }
+    if (tabName === 'browse' && !browseLoaded) {
+      browseLoaded = true;
+      loadBrowseAnimes();
+    }
   }
 
   document.querySelectorAll('.nav-tab').forEach(tab => {
@@ -3218,5 +3222,406 @@ async function contextMenuAction(action) {
     }
   } catch (err) {
     console.warn('Context menu action failed:', err);
+  }
+}
+
+
+// ==============================================
+// CATALOG (BROWSE API) - ADVANCED FILTER & MULTI-SELECT
+// ==============================================
+
+let browseLoaded = false;
+let allCatalogItems = [];
+let selectedCatalogIds = new Set();
+let currentCatalogFilter = '';
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+async function copyUrlToDownload(url) {
+  try {
+    const input = document.getElementById('search-input');
+    if (input) {
+      input.value = url;
+      input.focus();
+      input.select();
+      switchTab('dashboard');
+      searchSeries();
+    }
+  } catch (err) {
+    console.warn('copyUrlToDownload failed:', err);
+  }
+}
+
+async function loadBrowseAnimes() {
+  const loadingEl = document.getElementById('catalog-loading');
+  const errorEl = document.getElementById('catalog-error');
+  const listEl = document.getElementById('catalog-list');
+  const filterInput = document.getElementById('catalog-filter-input');
+
+  try {
+    loadingEl.style.display = 'flex';
+    errorEl.style.display = 'none';
+    listEl.innerHTML = '';
+    selectedCatalogIds.clear();
+    updateCatalogBatchBar();
+
+    const res = await api('/api/browse');
+    if (!res || !res.success) {
+      throw new Error(res?.error || 'Error loading catalog');
+    }
+
+    allCatalogItems = Array.isArray(res.data?.data) ? res.data.data : [];
+
+    if (filterInput) {
+      filterInput.placeholder = `search ${allCatalogItems.length} animes...`;
+      currentCatalogFilter = filterInput.value.trim().toLowerCase();
+    }
+
+    renderCatalogList();
+  } catch (err) {
+    console.error('loadBrowseAnimes error:', err);
+    errorEl.textContent = 'Error: ' + (err.message || err);
+    errorEl.style.display = 'block';
+    toast('Could not load catalog', 'err');
+    browseLoaded = false;
+  } finally {
+    loadingEl.style.display = 'none';
+  }
+}
+
+function filterCatalog(query) {
+  currentCatalogFilter = (query || '').trim().toLowerCase();
+  const clearBtn = document.getElementById('catalog-filter-clear');
+  if (clearBtn) {
+    clearBtn.style.display = currentCatalogFilter ? 'block' : 'none';
+  }
+  renderCatalogList();
+}
+
+function clearCatalogFilter() {
+  const filterInput = document.getElementById('catalog-filter-input');
+  if (filterInput) {
+    filterInput.value = '';
+    filterInput.focus();
+  }
+  filterCatalog('');
+}
+
+function renderCatalogList() {
+  const listEl = document.getElementById('catalog-list');
+  if (!listEl) return;
+
+  if (!allCatalogItems.length) {
+    listEl.innerHTML = '<div class="catalog-empty">No anime found in broadcast catalog</div>';
+    return;
+  }
+
+  const filtered = currentCatalogFilter
+    ? allCatalogItems.filter(anime => {
+        const title = (anime.title || '').toLowerCase();
+        const desc = (anime.description || '').toLowerCase();
+        const meta = anime.series_metadata || {};
+        const year = String(meta.series_launch_year || '');
+        return title.includes(currentCatalogFilter) || desc.includes(currentCatalogFilter) || year.includes(currentCatalogFilter);
+      })
+    : allCatalogItems;
+
+  if (!filtered.length) {
+    listEl.innerHTML = `<div class="catalog-empty">No anime matching "${escapeHtml(currentCatalogFilter)}"</div>`;
+    return;
+  }
+
+  listEl.innerHTML = filtered.map((anime, idx) => {
+    const meta = anime.series_metadata || {};
+    const id = anime.id || `anime-${idx + 1}`;
+    const title = anime.title || 'Untitled';
+    const type = (anime.type === 'movie_listing' || (meta.is_mature && meta.mature_blocked)) ? 'Movie' : 'Series';
+    const year = meta.series_launch_year || '';
+
+    const seasonsCount = meta.season_count;
+    const episodesCount = meta.episode_count;
+    let episodesStr = '';
+    if (seasonsCount != null && episodesCount != null) {
+      episodesStr = `${seasonsCount} ${seasonsCount === 1 ? 'season' : 'seasons'} • ${episodesCount} ep`;
+    } else if (episodesCount != null) {
+      episodesStr = `${episodesCount} ep`;
+    }
+
+    const description = anime.description || meta.extended_description || '';
+
+    const tallList = anime.images?.poster_tall?.[0] || [];
+    const wideList = anime.images?.poster_wide?.[0] || [];
+    const posterSrc = (tallList[tallList.length - 1]?.source) || (wideList[wideList.length - 1]?.source) || '';
+
+    const seriesId = anime.id || (anime.linked_resource_key || '').replace(/.*\/series\//, '');
+    const url = `https://www.crunchyroll.com/series/${seriesId}`;
+
+    const audioLocales = (meta.audio_locales || []).map(l => l.split('-')[0].toUpperCase());
+    const uniqueAudios = Array.from(new Set(audioLocales)).slice(0, 4).join(', ');
+
+    const badges = [];
+    badges.push(`<span class="res-badge ${type === 'Movie' ? 'res-badge-movie' : ''}">${type}</span>`);
+    if (year) badges.push(`<span class="res-badge">${year}</span>`);
+    if (episodesStr) badges.push(`<span class="res-badge">${episodesStr}</span>`);
+    if (meta.is_subbed) badges.push('<span class="res-badge res-badge-sub">SUB</span>');
+    if (meta.is_dubbed) badges.push('<span class="res-badge res-badge-dub">DUB</span>');
+
+    const isSelected = selectedCatalogIds.has(id);
+
+    return `
+      <div class="catalog-card ${isSelected ? 'selected' : ''}" data-id="${escapeHtml(id)}" data-url="${escapeHtml(url)}" tabindex="0">
+        <div class="catalog-poster-box">
+          ${posterSrc
+            ? `<img class="catalog-poster" src="${escapeHtml(posterSrc)}" alt="${escapeHtml(title)}" loading="lazy" onerror="this.style.opacity='0.2'">`
+            : `<div class="catalog-poster catalog-poster-empty"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div>`
+          }
+        </div>
+        <div class="catalog-content">
+          <div class="catalog-title-row">
+            <h3 class="catalog-title" title="${escapeHtml(title)}">${escapeHtml(title)}</h3>
+            <div class="catalog-selected-badge">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              <span>selected</span>
+            </div>
+          </div>
+          <div class="res-badges">${badges.join('')}</div>
+          ${description ? `<p class="catalog-desc" title="${escapeHtml(description)}">${escapeHtml(description)}</p>` : ''}
+          <div class="catalog-bottom-row">
+            ${uniqueAudios ? `<span class="catalog-langs" title="Audio: ${escapeHtml((meta.audio_locales || []).join(', '))}">audio: ${escapeHtml(uniqueAudios)}</span>` : '<span class="catalog-langs"></span>'}
+            <div class="catalog-card-actions">
+              <button type="button" class="btn-s catalog-fetch-btn" data-url="${escapeHtml(url)}" data-title="${escapeHtml(title)}" title="Inspect seasons and episodes on Dashboard">
+                <span>fetch</span>
+              </button>
+              <button type="button" class="btn-s btn-pri catalog-dl-btn" data-url="${escapeHtml(url)}" data-title="${escapeHtml(title)}" title="Instantly enqueue all episodes to download queue">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>download</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  listEl.onclick = (e) => {
+    // 1. Explicit Download button
+    const dlBtn = e.target.closest('.catalog-dl-btn');
+    if (dlBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      instantDownloadAnimeList([dlBtn.dataset.url], dlBtn.dataset.title);
+      return;
+    }
+
+    // 2. Explicit Fetch button
+    const fetchBtn = e.target.closest('.catalog-fetch-btn');
+    if (fetchBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      copyUrlToDownload(fetchBtn.dataset.url);
+      return;
+    }
+
+    // 3. Clicking anywhere on the card toggles its selection state
+    const card = e.target.closest('.catalog-card');
+    if (card && card.dataset.id) {
+      toggleSelectCatalogCard(card.dataset.id);
+    }
+  };
+
+  updateCatalogBatchBar();
+}
+
+function toggleSelectCatalogCard(id, forceValue = null) {
+  if (!id) return;
+  const isSelected = forceValue !== null ? forceValue : !selectedCatalogIds.has(id);
+  if (isSelected) {
+    selectedCatalogIds.add(id);
+  } else {
+    selectedCatalogIds.delete(id);
+  }
+
+  const card = document.querySelector(`.catalog-card[data-id="${id}"]`);
+  if (card) {
+    card.classList.toggle('selected', isSelected);
+  }
+
+  updateCatalogBatchBar();
+}
+
+function toggleSelectAllCatalog() {
+  const visibleCards = document.querySelectorAll('.catalog-card');
+  if (!visibleCards.length) return;
+
+  const allVisibleSelected = Array.from(visibleCards).every(card => selectedCatalogIds.has(card.dataset.id));
+  const newSelection = !allVisibleSelected;
+
+  visibleCards.forEach(card => {
+    const id = card.dataset.id;
+    if (newSelection) {
+      selectedCatalogIds.add(id);
+    } else {
+      selectedCatalogIds.delete(id);
+    }
+    card.classList.toggle('selected', newSelection);
+  });
+
+  updateCatalogBatchBar();
+}
+
+function selectAllCatalog(select) {
+  if (!select) {
+    selectedCatalogIds.clear();
+    document.querySelectorAll('.catalog-card').forEach(card => {
+      card.classList.remove('selected');
+    });
+    updateCatalogBatchBar();
+  } else {
+    toggleSelectAllCatalog();
+  }
+}
+
+function updateCatalogBatchBar() {
+  const count = selectedCatalogIds.size;
+  const batchBar = document.getElementById('catalog-batch-bar');
+  const countEl = document.getElementById('catalog-selected-count');
+  const selectAllBtn = document.getElementById('catalog-select-all-btn');
+
+  if (batchBar && countEl) {
+    if (count > 0) {
+      batchBar.style.display = 'flex';
+      countEl.textContent = `${count} anime${count === 1 ? '' : 's'} selected`;
+    } else {
+      batchBar.style.display = 'none';
+    }
+  }
+
+  if (selectAllBtn) {
+    const visibleCards = document.querySelectorAll('.catalog-card');
+    const allSelected = visibleCards.length > 0 && Array.from(visibleCards).every(c => selectedCatalogIds.has(c.dataset.id));
+    selectAllBtn.querySelector('span').textContent = allSelected ? 'deselect all' : 'select all';
+  }
+}
+
+function getSelectedCatalogUrls() {
+  const urls = [];
+  selectedCatalogIds.forEach(id => {
+    urls.push(`https://www.crunchyroll.com/series/${id}`);
+  });
+  return urls;
+}
+
+async function fetchSelectedCatalog() {
+  const urls = getSelectedCatalogUrls();
+  if (!urls.length) {
+    toast('No animes selected', 'err');
+    return;
+  }
+  switchTab('dashboard');
+  await fetchUrl(urls, true);
+  selectedCatalogIds.clear();
+  updateCatalogBatchBar();
+}
+
+async function instantDownloadSelectedCatalog() {
+  const urls = getSelectedCatalogUrls();
+  if (!urls.length) {
+    toast('No animes selected', 'err');
+    return;
+  }
+  await instantDownloadAnimeList(urls);
+  selectedCatalogIds.clear();
+  updateCatalogBatchBar();
+}
+
+async function instantDownloadAnimeList(urls, singleTitle = '') {
+  if (!urls || !urls.length) return;
+
+  const countStr = urls.length > 1 ? `${urls.length} animes` : (singleTitle || 'anime');
+  toast(`Fetching episodes for ${countStr}...`, 'info');
+
+  try {
+    const fetchRes = await api('/api/fetch', { urls: urls });
+    if (!fetchRes || !fetchRes.success) {
+      toast(fetchRes?.error || 'Failed to fetch anime episodes', 'err');
+      return;
+    }
+
+    const fetched = fetchRes.animes || (fetchRes.seasons ? [fetchRes] : []);
+    if (!fetched.length) {
+      toast('No anime found for selected URL(s)', 'err');
+      return;
+    }
+
+    const allEpisodes = [];
+    fetched.forEach(anime => {
+      const seriesTitle = anime.title || 'Anime';
+      (anime.seasons || []).forEach(season => {
+        (season.episodes || []).forEach(ep => {
+          allEpisodes.push({
+            ...ep,
+            series_title: seriesTitle,
+          });
+        });
+      });
+    });
+
+    if (!allEpisodes.length) {
+      toast('No episodes found to download', 'err');
+      return;
+    }
+
+    let taskTitle = singleTitle || fetched[0].title || 'Anime';
+    if (fetched.length > 1) {
+      taskTitle = `${fetched.length} Anime Batch`;
+    }
+
+    const vqVal = ddVideo ? ddVideo.value : (document.getElementById('vq')?.value || '1080p');
+    const aqVal = ddAudioQual ? ddAudioQual.value : (document.getElementById('aq')?.value || '192k');
+    const audioVal = ddAudio ? ddAudio.value : (document.getElementById('al')?.value || 'ja-JP');
+    const subsVal = ddSubs ? ddSubs.value : (document.getElementById('sl')?.value || 'en-US');
+    const dlDirVal = (document.getElementById('download-dir') || {}).value || '';
+    const workersVal = parseInt(document.getElementById('workers-slider')?.value || '16', 10);
+    const resumeVal = Boolean(document.getElementById('enable-resume')?.checked);
+    const bitrateVal = ddBitrate ? ddBitrate.value : (document.getElementById('bitrate-mode')?.value || 'highest');
+
+    const dlRes = await api('/api/download', {
+      items: allEpisodes,
+      task_title: taskTitle,
+      series_title: taskTitle,
+      video_quality: vqVal,
+      audio_quality: aqVal,
+      audio_lang: audioVal,
+      subs_lang: subsVal,
+      force_download: (document.getElementById('force-download') || {}).checked || false,
+      download_dir: dlDirVal.trim() || 'anime',
+      workers: workersVal,
+      enable_resume: resumeVal,
+      bitrate_mode: bitrateVal,
+    });
+
+    if (!dlRes || !dlRes.success) {
+      toast(dlRes?.error || 'Failed to start download', 'err');
+      return;
+    }
+
+    toast(dlRes.message || `Enqueued ${allEpisodes.length} episode(s) to download queue!`, 'ok');
+    switchTab('dashboard');
+    const dlPanel = document.getElementById('dl-panel');
+    if (dlPanel) dlPanel.style.display = 'block';
+    startPolling();
+  } catch (err) {
+    console.error('instantDownloadAnimeList error:', err);
+    toast('Download error: ' + (err.message || err), 'err');
   }
 }
