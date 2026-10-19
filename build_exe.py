@@ -18,6 +18,10 @@ def build():
 
     root = os.path.dirname(os.path.abspath(__file__))
 
+    # Ensure no previous crunchyroller process is locking dist files
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/F", "/IM", "crunchyroller.exe"], capture_output=True)
+
     # Clean previous build directories to ensure pristine output
     dist_dir = os.path.join(root, "dist", "crunchyroller")
     build_dir = os.path.join(root, "build")
@@ -50,13 +54,6 @@ def build():
         print(f"Copying ffmpeg.exe to {ffmpeg_dst}...")
         shutil.copy2(ffmpeg_src, ffmpeg_dst)
 
-    # Copy bin/ directory structure for N_m3u8DL-RE support
-    bin_src = os.path.join(root, "bin")
-    bin_dst = os.path.join(dist_dir, "bin")
-    if os.path.exists(bin_src):
-        print(f"Copying bin directory to {bin_dst}...")
-        shutil.copytree(bin_src, bin_dst, dirs_exist_ok=True)
-
     readme_content = f"""========================================================================
                       CRUNCHYROLLER v{__version__}
 ========================================================================
@@ -88,6 +85,21 @@ REQUIREMENTS:
    Required to display the native app window.
    If WebView2 is missing on your PC, the app will show a prompt to download
    and install it automatically from Microsoft.
+
+------------------------------------------------------------------------
+WHAT'S NEW IN v3.8.0:
+------------------------------------------------------------------------
+- Recently Added Anime Catalog (#18):
+  Explore newly added Crunchyroll anime in a dedicated tab with artwork, metadata,
+  integrated search filtering, and multi-select queueing/fetching.
+- Multi-Language Subtitle Preservation:
+  Fixed mobile /download upgrade dropping non-English subtitles (fr-FR, de-DE, etc.).
+- Candidate Dub Version Prioritization:
+  Dub version discovery now prioritizes candidate streams matching requested subtitle locales.
+- 64-bit Clipboard Safety (Fixes #19):
+  Fixed silent access violation crash on Windows when right-click pasting URLs.
+- Standalone Optimization:
+  Removed unused binaries and packages from distribution bundles.
 
 ------------------------------------------------------------------------
 WHAT'S NEW IN v3.7.1:

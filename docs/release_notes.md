@@ -1,7 +1,11 @@
-### What's Changed in v3.7.1
+### What's Changed in v3.8.0
 
-- **Windows Long Path Budgeting (Closes #17)**: Fixed `[Errno 2] No such file or directory` crashes on Windows when downloading shows with very long titles (e.g. *A Livid Lady's Guide to Getting Even...*). Output paths and intermediate muxing files (`.tmp.mkv`) are now dynamically budgeted to stay safely $\le 259$ characters (`MAX_PATH`) while preserving season/episode identifiers (`S01E08`), quality tags, and existing file compatibility.
-- **Safe Temporary Chapter Metadata**: Chapter markers during FFmpeg muxing are now written to the system temporary directory (via `tempfile`) instead of appending `.chapters.txt` to the destination filename, preventing path overflow during merge.
-- **Connection Pool Expansion**: Increased HTTP connection pool capacities across the session pool, downloader, and worker queues (scaling to 64–128 connections). This eliminates `[urllib3.connectionpool] Connection pool is full` warnings and reduces unnecessary TLS renegotiations under high worker concurrency.
+- **Recently Added Anime Catalog (#18)**: Added a new "recently added" catalog tab powered by Crunchyroll's Browse API, allowing instant exploration of the latest anime additions with poster artwork, episode counts, audio languages, and descriptions.
+- **Dynamic Catalog Search & Filter**: Real-time anime filtering directly within the top header with embedded catalog count indicator.
+- **Batch Selection & Dual Actions**: Multi-select cards to either fetch entire series into your Dashboard episode tree or trigger instant batch queueing.
+- **Multi-Language Subtitle Preservation**: Fixed an issue where upgrading to the high-speed mobile `/download` CDN profile dropped non-English subtitle tracks (`fr-FR`, `de-DE`, `es-419`, `it-IT`, etc.). Standard and mobile subtitle dictionaries are now cleanly merged.
+- **Candidate Dub Version Prioritization**: Candidate dub versions now prioritize matching the user's requested subtitle locales first, ensuring dialogue subtitles are not skipped.
+- **64-bit Clipboard Safety (Fixes #19)**: Resolved silent application crashes on Windows 64-bit when pasting URLs via the context menu by properly declaring ctypes Win32 API pointer types and adding mutex retry handling.
+- **Standalone Distribution Optimization**: Removed unused binaries and unneeded package bloat from release bundles.
 
-**Full Changelog**: https://github.com/Vure-sh/crunchyroller/compare/v3.7.0...v3.7.1
+**Full Changelog**: https://github.com/Vure-sh/crunchyroller/compare/v3.7.1...v3.8.0
