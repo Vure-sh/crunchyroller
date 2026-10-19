@@ -1176,23 +1176,28 @@ def download_episode(
 
         if needs_more_subs:
             print("Fetching subtitles from versions...")
+            logger.info("Fetching subtitles from versions...")
             candidate_versions = [
                 v for v in info.episode_metadata.versions
                 if v.guid and v.guid != first_playback_id and v.guid not in playback_cache
             ]
+            requested_bases = {locale_base(loc).lower() for loc in subs_langs} if not subs_all else set()
             def _version_priority(v):
                 v_base = locale_base(getattr(v, "audio_locale", "") or "").lower()
                 if v_base in missing_cc_bases:
                     return 0
-                if (getattr(v, "audio_locale", "") or "").lower() == "ja-jp":
+                if v_base in requested_bases:
                     return 1
-                return 2
+                if (getattr(v, "audio_locale", "") or "").lower() == "ja-jp":
+                    return 2
+                return 3
 
             candidate_versions.sort(key=_version_priority)
             selected_audio_guids = {v.guid for v in versions if v.guid}
 
             for v_idx, version in enumerate(candidate_versions):
                 print(f"Checking subtitle source: {track_title(version.audio_locale)}...")
+                logger.info("Checking subtitle source: %s...", track_title(version.audio_locale))
                 if v_idx > 0:
                     time.sleep(0.5)
                 v_ep = get_episode(
@@ -1221,12 +1226,16 @@ def download_episode(
                 # ja-JP provides the complete master subtitle catalog
                 if (getattr(version, "audio_locale", "") or "").lower() == "ja-jp" and v_ep.subtitles and not missing_cc_bases:
                     break
-                # Never query more than 3 candidate versions for subtitles
-                if v_idx >= 2 and first_episode.subtitles:
+                if not subs_all:
+                    v_base = locale_base(getattr(version, "audio_locale", "") or "").lower()
+                    if v_idx >= 3 and v_base not in requested_bases and first_episode.subtitles:
+                        break
+                elif v_idx >= 2 and first_episode.subtitles:
                     break
 
             if not first_episode.subtitles:
                 print("Warning: Failed to fetch subtitles!")
+                logger.warning("Failed to fetch subtitles from candidate versions!")
 
         subtitle_map = _locale_map(first_episode.subtitles)
         if subs_all:
@@ -1253,10 +1262,17 @@ def download_episode(
             f"audio=[{', '.join(track_title(version.audio_locale) for version in versions) or 'none'}], "
             f"subtitles=[{', '.join(track_title(locale) for locale in subs_langs) or 'none'}]"
         )
+        logger.info(
+            "Tracks selected: audio=[%s], subtitles=[%s]",
+            ", ".join(track_title(version.audio_locale) for version in versions) or "none",
+            ", ".join(track_title(locale) for locale in subs_langs) or "none",
+        )
         if missing_audio:
             print(f"Warning: Audio tracks unavailable: {', '.join(missing_audio)}")
+            logger.warning("Audio tracks unavailable: %s", ", ".join(missing_audio))
         if missing_subtitles:
             print(f"Warning: Subtitle tracks unavailable: {', '.join(missing_subtitles)}")
+            logger.warning("Subtitle tracks unavailable: %s", ", ".join(missing_subtitles))
 
         sub_tracks: List[MediaTrack] = []
         for loc in subs_langs:
@@ -1267,6 +1283,7 @@ def download_episode(
             sub_file = None
             if subtitle and subtitle.url:
                 print(f"Downloading subtitles for {track_title(actual_locale)}...")
+                logger.info("Downloading subtitles for %s...", track_title(actual_locale))
                 try:
                     sub_file = download_subs(
                         subtitle.url,
@@ -1278,6 +1295,11 @@ def download_episode(
                     print(
                         f"Warning: Primary subtitle download failed for {track_title(actual_locale)} ({exc}). "
                         "Checking fallback sources..."
+                    )
+                    logger.warning(
+                        "Primary subtitle download failed for %s (%s). Checking fallback sources...",
+                        track_title(actual_locale),
+                        exc,
                     )
                     sub_file = _try_fallback_subtitles(
                         client, info, actual_locale, pool=shared_pool, exclude_id=first_playback_id
@@ -1301,18 +1323,19 @@ def download_episode(
                 )
             else:
                 print(f"Warning: Subtitle track unavailable for {track_title(actual_locale)}. Continuing download without it.")
+                logger.warning("Subtitle track unavailable for %s. Continuing download without it.", track_title(actual_locale))
 
         if sub_tracks:
-            print(
-                "Downloaded subtitles: "
-                + ", ".join(
-                    f"{track_title(track.locale)}"
-                    + (" (default)" if track.is_default else "")
-                    for track in sub_tracks
-                )
+            sub_summary = ", ".join(
+                f"{track_title(track.locale)}"
+                + (" (default)" if track.is_default else "")
+                for track in sub_tracks
             )
+            print(f"Downloaded subtitles: {sub_summary}")
+            logger.info("Downloaded subtitles: %s", sub_summary)
         elif subs_langs:
             print("Downloaded subtitles: none")
+            logger.warning("Downloaded subtitles: none (requested: %s)", ", ".join(subs_langs))
 
         video_file: Optional[str] = None
         audio_tracks: List[MediaTrack] = []
@@ -2080,23 +2103,28 @@ def _download_episode_n_m3u8dl_re(
 
         if needs_more_subs:
             print("Fetching subtitles from versions...")
+            logger.info("Fetching subtitles from versions...")
             candidate_versions = [
                 v for v in info.episode_metadata.versions
                 if v.guid and v.guid != first_playback_id and v.guid not in playback_cache
             ]
+            requested_bases = {locale_base(loc).lower() for loc in subs_langs} if not subs_all else set()
             def _version_priority(v):
                 v_base = locale_base(getattr(v, "audio_locale", "") or "").lower()
                 if v_base in missing_cc_bases:
                     return 0
-                if (getattr(v, "audio_locale", "") or "").lower() == "ja-jp":
+                if v_base in requested_bases:
                     return 1
-                return 2
+                if (getattr(v, "audio_locale", "") or "").lower() == "ja-jp":
+                    return 2
+                return 3
 
             candidate_versions.sort(key=_version_priority)
             selected_audio_guids = {v.guid for v in versions if v.guid}
 
             for v_idx, version in enumerate(candidate_versions):
                 print(f"Checking subtitle source: {track_title(version.audio_locale)}...")
+                logger.info("Checking subtitle source: %s...", track_title(version.audio_locale))
                 if v_idx > 0:
                     time.sleep(0.5)
                 v_ep = get_episode(
@@ -2124,11 +2152,16 @@ def _download_episode_n_m3u8dl_re(
                         break
                 if (getattr(version, "audio_locale", "") or "").lower() == "ja-jp" and v_ep.subtitles and not missing_cc_bases:
                     break
-                if v_idx >= 2 and first_episode.subtitles:
+                if not subs_all:
+                    v_base = locale_base(getattr(version, "audio_locale", "") or "").lower()
+                    if v_idx >= 3 and v_base not in requested_bases and first_episode.subtitles:
+                        break
+                elif v_idx >= 2 and first_episode.subtitles:
                     break
 
             if not first_episode.subtitles:
                 print("Warning: Failed to fetch subtitles!")
+                logger.warning("Failed to fetch subtitles from candidate versions!")
 
         subtitle_map = _locale_map(first_episode.subtitles)
         if subs_all:
@@ -2153,10 +2186,17 @@ def _download_episode_n_m3u8dl_re(
             f"audio=[{', '.join(track_title(v.audio_locale) for v in versions) or 'none'}], "
             f"subtitles=[{', '.join(track_title(loc) for loc in subs_langs) or 'none'}]"
         )
+        logger.info(
+            "Tracks selected: audio=[%s], subtitles=[%s]",
+            ", ".join(track_title(v.audio_locale) for v in versions) or "none",
+            ", ".join(track_title(loc) for loc in subs_langs) or "none",
+        )
         if missing_audio:
             print(f"Warning: Audio tracks unavailable: {', '.join(missing_audio)}")
+            logger.warning("Audio tracks unavailable: %s", ", ".join(missing_audio))
         if missing_subtitles:
             print(f"Warning: Subtitle tracks unavailable: {', '.join(missing_subtitles)}")
+            logger.warning("Subtitle tracks unavailable: %s", ", ".join(missing_subtitles))
 
         # ------------------------------------------------------------------
         # 5. Download subtitles
@@ -2170,12 +2210,18 @@ def _download_episode_n_m3u8dl_re(
             sub_file = None
             if subtitle and subtitle.url:
                 print(f"Downloading subtitles for {track_title(actual_locale)}...")
+                logger.info("Downloading subtitles for %s...", track_title(actual_locale))
                 try:
                     sub_file = download_subs(subtitle.url, pool=shared_pool)
                 except Exception as exc:
                     print(
                         f"Warning: Primary subtitle download failed for {track_title(actual_locale)} ({exc}). "
                         "Checking fallback sources..."
+                    )
+                    logger.warning(
+                        "Primary subtitle download failed for %s (%s). Checking fallback sources...",
+                        track_title(actual_locale),
+                        exc,
                     )
                     sub_file = _try_fallback_subtitles(
                         client, info, actual_locale, pool=shared_pool, exclude_id=first_playback_id
@@ -2196,17 +2242,18 @@ def _download_episode_n_m3u8dl_re(
                 )
             else:
                 print(f"Warning: Subtitle track unavailable for {track_title(actual_locale)}. Continuing download without it.")
+                logger.warning("Subtitle track unavailable for %s. Continuing download without it.", track_title(actual_locale))
 
         if sub_tracks:
-            print(
-                "Downloaded subtitles: "
-                + ", ".join(
-                    f"{track_title(t.locale)}" + (" (default)" if t.is_default else "")
-                    for t in sub_tracks
-                )
+            sub_summary = ", ".join(
+                f"{track_title(t.locale)}" + (" (default)" if t.is_default else "")
+                for t in sub_tracks
             )
+            print(f"Downloaded subtitles: {sub_summary}")
+            logger.info("Downloaded subtitles: %s", sub_summary)
         elif subs_langs:
             print("Downloaded subtitles: none")
+            logger.warning("Downloaded subtitles: none (requested: %s)", ", ".join(subs_langs))
 
         # ------------------------------------------------------------------
         # 6. Download video + audio with N_m3u8DL-RE

@@ -404,11 +404,14 @@ def get_episode_download(
             flush=True,
         )
 
-        # Return a new PlaybackStream using the patched manifest URL,
-        # but keep the /play session token for proper stream lifecycle management
+        # Preserve all subtitle tracks from standard /play and overlay any from /download
+        merged_subtitles = dict(play_stream.subtitles or {})
+        if dl_stream.subtitles:
+            merged_subtitles.update(dl_stream.subtitles)
+
         return PlaybackStream(
             manifest_url=patched_url,
-            subtitles=dl_stream.subtitles or play_stream.subtitles,
+            subtitles=merged_subtitles,
             token=play_stream.token,  # CRITICAL: reuse /play token, not /download token
         )
 

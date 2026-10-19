@@ -221,10 +221,30 @@ def get_system_clipboard() -> str:
     if sys.platform == "win32":
         try:
             import ctypes
+            from ctypes import wintypes
             CF_UNICODETEXT = 13
             user32 = ctypes.windll.user32
             kernel32 = ctypes.windll.kernel32
-            if user32.OpenClipboard(None):
+
+            user32.OpenClipboard.argtypes = [wintypes.HWND]
+            user32.OpenClipboard.restype = wintypes.BOOL
+            user32.GetClipboardData.argtypes = [wintypes.UINT]
+            user32.GetClipboardData.restype = wintypes.HANDLE
+            user32.CloseClipboard.argtypes = []
+            user32.CloseClipboard.restype = wintypes.BOOL
+            kernel32.GlobalLock.argtypes = [wintypes.HGLOBAL]
+            kernel32.GlobalLock.restype = ctypes.c_void_p
+            kernel32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
+            kernel32.GlobalUnlock.restype = wintypes.BOOL
+
+            opened = False
+            for _ in range(5):
+                if user32.OpenClipboard(None):
+                    opened = True
+                    break
+                time.sleep(0.01)
+
+            if opened:
                 try:
                     h_mem = user32.GetClipboardData(CF_UNICODETEXT)
                     if h_mem:
@@ -277,11 +297,35 @@ def set_system_clipboard(text: str) -> bool:
     if sys.platform == "win32":
         try:
             import ctypes
+            from ctypes import wintypes
             CF_UNICODETEXT = 13
             GMEM_MOVEABLE = 0x0002
             user32 = ctypes.windll.user32
             kernel32 = ctypes.windll.kernel32
-            if user32.OpenClipboard(None):
+
+            user32.OpenClipboard.argtypes = [wintypes.HWND]
+            user32.OpenClipboard.restype = wintypes.BOOL
+            user32.EmptyClipboard.argtypes = []
+            user32.EmptyClipboard.restype = wintypes.BOOL
+            user32.SetClipboardData.argtypes = [wintypes.UINT, wintypes.HANDLE]
+            user32.SetClipboardData.restype = wintypes.HANDLE
+            user32.CloseClipboard.argtypes = []
+            user32.CloseClipboard.restype = wintypes.BOOL
+            kernel32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
+            kernel32.GlobalAlloc.restype = wintypes.HGLOBAL
+            kernel32.GlobalLock.argtypes = [wintypes.HGLOBAL]
+            kernel32.GlobalLock.restype = ctypes.c_void_p
+            kernel32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
+            kernel32.GlobalUnlock.restype = wintypes.BOOL
+
+            opened = False
+            for _ in range(5):
+                if user32.OpenClipboard(None):
+                    opened = True
+                    break
+                time.sleep(0.01)
+
+            if opened:
                 try:
                     user32.EmptyClipboard()
                     encoded = text.encode("utf-16le") + b"\x00\x00"
