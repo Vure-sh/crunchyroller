@@ -3256,7 +3256,7 @@ async function copyUrlToDownload(url) {
   }
 }
 
-async function loadBrowseAnimes() {
+async function loadBrowseAnimes(forceRefresh = false) {
   const loadingEl = document.getElementById('catalog-loading');
   const errorEl = document.getElementById('catalog-error');
   const listEl = document.getElementById('catalog-list');
@@ -3269,7 +3269,8 @@ async function loadBrowseAnimes() {
     selectedCatalogIds.clear();
     updateCatalogBatchBar();
 
-    const res = await api('/api/browse');
+    const url = forceRefresh ? '/api/browse?refresh=1' : '/api/browse';
+    const res = await api(url);
     if (!res || !res.success) {
       throw new Error(res?.error || 'Error loading catalog');
     }
