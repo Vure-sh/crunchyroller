@@ -20,7 +20,7 @@ from .downloader import download_episode
 from .http_client import CrunchyrollHttpClient
 from .session_pool import ConcurrencyConfig
 from .state_store import PersistedState, StateStore
-from .types import DEFAULT_DOWNLOAD_DIR, EpisodeInfo
+from .types import AudioUnavailableError, DEFAULT_DOWNLOAD_DIR, EpisodeInfo
 
 
 @dataclass
@@ -41,6 +41,7 @@ class QueueItem:
     enable_hedging: bool = False
     enable_resume: bool = True
     bitrate_mode: str = "highest"
+    audio_fallback: bool = True
     status: str = "queued"  # queued | running | paused | completed | failed | canceled | interrupted
     error: Optional[str] = None
     created_at: float = field(default_factory=time.time)
@@ -80,6 +81,7 @@ class QueueItem:
             "enable_hedging": self.enable_hedging,
             "enable_resume": self.enable_resume,
             "bitrate_mode": self.bitrate_mode,
+            "audio_fallback": self.audio_fallback,
             "status": self.status,
             "error": self.error,
             "created_at": self.created_at,
@@ -110,6 +112,7 @@ class QueueItem:
             enable_hedging=bool(d.get("enable_hedging", False)),
             enable_resume=bool(d.get("enable_resume", True)),
             bitrate_mode=str(d.get("bitrate_mode", "highest")),
+            audio_fallback=bool(d.get("audio_fallback", True)),
             status=str(d.get("status", "queued")),
             error=d.get("error"),
             created_at=float(d.get("created_at", time.time())),
@@ -166,11 +169,11 @@ class DownloadTask:
         active_job_id: Optional[str] = None,
     ) -> str:
         task_items = [items_map[iid] for iid in self.item_ids if iid in items_map]
-        active_items = [it for it in task_items if it.status != "canceled"]
+        active_items = [it for it in task_items if it.status not in ("canceled", "skipped")]
         total = len(active_items)
         completed = sum(1 for it in active_items if it.status == "completed")
         failed = sum(1 for it in active_items if it.status == "failed")
-        canceled = sum(1 for it in task_items if it.status == "canceled")
+        canceled = sum(1 for it in task_items if it.status in ("canceled", "skipped"))
         is_active = any(it.id == active_job_id for it in active_items)
 
         if self.status == "canceled":
@@ -252,12 +255,13 @@ class DownloadTask:
         }
 
 
-def normalize_langs(val: Any) -> List[str]:
+def normalize_langs(val: Any, default: str = "ja-JP") -> List[str]:
+    def_list = [default] if default else []
     if isinstance(val, list):
-        return [str(x).strip() for x in val if str(x).strip()] or ["ja-JP"]
+        return [str(x).strip() for x in val if str(x).strip()] or def_list
     if isinstance(val, str):
-        return [str(x).strip() for x in val.split(",") if str(x).strip()] or ["ja-JP"]
-    return ["ja-JP"]
+        return [str(x).strip() for x in val.split(",") if str(x).strip()] or def_list
+    return def_list
 
 
 class DownloadQueue:
@@ -456,13 +460,14 @@ class DownloadQueue:
             vq = str(item.get("video_quality") or opts.get("video_quality") or "1080p")
             aq = str(item.get("audio_quality") or opts.get("audio_quality") or "192k")
             al = normalize_langs(item.get("audio_langs") or item.get("audio_lang") or opts.get("audio_lang") or ["ja-JP"])
-            sl = normalize_langs(item.get("subs_langs") or item.get("subs_lang") or opts.get("subs_lang") or ["en-US"])
+            sl = normalize_langs(item.get("subs_langs") or item.get("subs_lang") or opts.get("subs_lang") or ["en-US"], default="en-US")
             fd = bool(item.get("force_download", opts.get("force_download", False)))
             dl_dir = str(item.get("download_dir") or opts.get("download_dir") or DEFAULT_DOWNLOAD_DIR).strip() or DEFAULT_DOWNLOAD_DIR
             workers = int(item.get("workers") or opts.get("workers") or 16)
             enable_hedging = bool(item.get("enable_hedging", opts.get("enable_hedging", False)))
             enable_resume = bool(item.get("enable_resume", opts.get("enable_resume", True)))
             bitrate_mode = str(item.get("bitrate_mode") or opts.get("bitrate_mode") or "highest")
+            audio_fallback = bool(item.get("audio_fallback", opts.get("audio_fallback", True)))
             season_title = str(item.get("season_title") or opts.get("season_title") or "").strip()
         else:
             ep_id = str(item).strip()
@@ -480,6 +485,7 @@ class DownloadQueue:
             enable_hedging = bool(opts.get("enable_hedging", False))
             enable_resume = bool(opts.get("enable_resume", True))
             bitrate_mode = str(opts.get("bitrate_mode") or "highest")
+            audio_fallback = bool(opts.get("audio_fallback", True))
             season_title = str(opts.get("season_title") or "").strip()
 
         if not ep_id:
@@ -510,6 +516,7 @@ class DownloadQueue:
                 enable_hedging=enable_hedging,
                 enable_resume=enable_resume,
                 bitrate_mode=bitrate_mode,
+                audio_fallback=audio_fallback,
                 status="queued",
                 task_id=task_id or "",
                 season_title=season_title,
@@ -1120,6 +1127,7 @@ class DownloadQueue:
                     download_dir=job.download_dir,
                     resume=getattr(job, "enable_resume", True),
                     bitrate_mode=getattr(job, "bitrate_mode", "highest"),
+                    audio_fallback=getattr(job, "audio_fallback", True),
                     concurrency_config=ConcurrencyConfig(
                         min_workers=1 if getattr(job, "workers", 16) <= 2 else max(2, getattr(job, "workers", 16) // 2),
                         max_workers=max(1, min(32, getattr(job, "workers", 16))),
@@ -1150,6 +1158,27 @@ class DownloadQueue:
                 else:
                     raise RuntimeError(f"Download finished but output file missing: {output_file}")
 
+            except AudioUnavailableError as e:
+                with self.lock:
+                    job.status = "skipped"
+                    job.error = str(e)
+                    job.finished_at = time.time()
+                    self.history.append(job)
+                    if len(self.history) > self.max_history:
+                        self.history.pop(0)
+                    self._prune_all_items_map()
+                    self.total_batch_count = max(
+                        self.completed_batch_count,
+                        self.total_batch_count - 1,
+                    )
+                    tot_batch = max(1, self.total_batch_count)
+                    self.overall_pct = round((self.completed_batch_count / tot_batch) * 100, 1) if tot_batch > 0 else 0.0
+                    if len(self.queue) > 0:
+                        self.last_status = "running"
+                    else:
+                        self.last_status = "completed" if self.completed_batch_count > 0 else "idle"
+                self._trigger_save()
+                self.log(f"skipped: {job.label} ({e})")
             except Exception as e:
                 if self.cancel_event.is_set() or isinstance(e, InterruptedError) or self.cancel_all_flag or job.status == "canceled":
                     with self.lock:

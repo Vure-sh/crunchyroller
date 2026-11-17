@@ -1,7 +1,7 @@
 """crunchyroll downloader logic"""
 import sys
 
-__version__ = "3.8.0"
+__version__ = "3.8.1"
 
 class _SafeStream:
     def __init__(self, target):
@@ -38,7 +38,16 @@ if sys.platform == "win32":
 sys.stdout = _SafeStream(sys.stdout)
 sys.stderr = _SafeStream(sys.stderr)
 
-from .api import delete_stream, purge_orphan_streams
+from .api import (
+    delete_stream,
+    purge_orphan_streams,
+    get_user_profiles,
+    get_user_watchlist,
+    get_active_profile_id,
+    get_active_account_id,
+    get_avatar_url,
+)
+from .auth import switch_profile, validate_profile_pin, decode_jwt_payload
 from .downloader import download_episode, download_season
 from .merger import merge_everything
 from .http_client import CrunchyrollHttpClient

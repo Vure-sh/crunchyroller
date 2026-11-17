@@ -19,23 +19,29 @@ def _key_bytes(value) -> bytes:
 
 def get_widevine_device() -> Optional[Device]:
     """hunt for a widevine device (.wvd or bin+pem)"""
-    wvd_files = glob.glob("*.wvd")
-    if wvd_files:
-        return Device.load(wvd_files[0])
+    search_dirs = [
+        os.getcwd(),
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    ]
+    for d in search_dirs:
+        wvd_files = glob.glob(os.path.join(d, "*.wvd"))
+        if wvd_files:
+            return Device.load(wvd_files[0])
 
-    if os.path.exists("client_id.bin") and os.path.exists("private_key.pem"):
-        with open("client_id.bin", "rb") as f:
-            client_id = f.read()
-        with open("private_key.pem", "rb") as f:
-            private_key = f.read()
-        return Device(
-            type_=DeviceTypes.CHROME,
-            security_level=3,
-            flags=None,
-            private_key=private_key,
-            client_id=client_id,
-        )
-
+        cid_path = os.path.join(d, "client_id.bin")
+        key_path = os.path.join(d, "private_key.pem")
+        if os.path.exists(cid_path) and os.path.exists(key_path):
+            with open(cid_path, "rb") as f:
+                client_id = f.read()
+            with open(key_path, "rb") as f:
+                private_key = f.read()
+            return Device(
+                type_=DeviceTypes.CHROME,
+                security_level=3,
+                flags=None,
+                private_key=private_key,
+                client_id=client_id,
+            )
 
     return None
 

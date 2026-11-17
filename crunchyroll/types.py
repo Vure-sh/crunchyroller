@@ -38,6 +38,7 @@ class Subtitle:
     language: str
     url: str
     is_cc: bool = False
+    is_signs: bool = False
 
 
 @dataclass
@@ -80,9 +81,15 @@ class MediaTrack:
     locale: str
     is_default: bool = False
     is_cc: bool = False
+    is_signs: bool = False
     bitrate: Optional[int] = None
     title: Optional[str] = None
 
 
 DEFAULT_DOWNLOAD_DIR: str = "anime"
 
+
+
+class AudioUnavailableError(RuntimeError):
+    """Raised when requested audio language is not available and fallback to original audio is disabled."""
+    pass

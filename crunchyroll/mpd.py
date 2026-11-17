@@ -365,9 +365,13 @@ def expand_timeline(
     return result
 
 
-def get_manifest_subtitles(manifest: ET.Element) -> Dict[str, str]:
+def get_manifest_subtitles(
+    manifest: ET.Element, manifest_url: Optional[str] = None
+) -> Dict[str, str]:
     """Extract subtitle tracks declared inside DASH MPD AdaptationSets (e.g. WebVTT)."""
     subtitles: Dict[str, str] = {}
+    from urllib.parse import urljoin
+    from .api import _SUBTITLE_LOCALE_ALIASES
     for adapt in manifest.iter():
         if _clean_tag(adapt.tag) != "AdaptationSet":
             continue
@@ -375,12 +379,15 @@ def get_manifest_subtitles(manifest: ET.Element) -> Dict[str, str]:
         ctype = adapt.attrib.get("contentType", "").lower()
         if "text" in mime or "text" in ctype or "vtt" in mime or "sub" in mime:
             lang = adapt.attrib.get("lang") or "en-US"
+            normalized_lang = _SUBTITLE_LOCALE_ALIASES.get(lang.lower(), lang)
             # Extract BaseURL from inside the AdaptationSet or Representation
             for elem in adapt.iter():
                 if _clean_tag(elem.tag) == "BaseURL" and elem.text and elem.text.strip():
                     url = elem.text.strip()
+                    if manifest_url and not (url.startswith("http://") or url.startswith("https://")):
+                        url = urljoin(manifest_url, url)
                     if url.startswith("http://") or url.startswith("https://"):
-                        subtitles[lang] = url
+                        subtitles[normalized_lang] = url
                         break
     return subtitles
 

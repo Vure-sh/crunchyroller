@@ -19,6 +19,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "subs_lang": "en-US",
     "force_download": False,
     "enable_logging": True,
+    "audio_fallback": True,
 }
 
 
@@ -66,8 +67,11 @@ def save_config(config_dict: Dict[str, Any], config_path: Optional[str] = None) 
                     pass
 
         # Update existing keys without wiping unmentioned keys
+        # Passing None for a key safely deletes it from config
         for k, v in config_dict.items():
-            if v is not None:
+            if v is None:
+                existing.pop(k, None)
+            else:
                 existing[k] = v
 
         # Atomic write via temporary file in the same directory + os.replace
@@ -149,12 +153,88 @@ _TOKEN_CACHE: Dict[str, Tuple[str, float]] = {}
 _TOKEN_CACHE_LOCK = threading.Lock()
 
 
-def get_access_token(etp_rt: str, force_refresh: bool = False) -> str:
-    """swap our session cookie for a bearer token, reusing cached token if valid"""
+def decode_jwt_payload(token: str) -> Dict[str, Any]:
+    """Safely decode and return JWT claims payload dictionary."""
+    if not token or not isinstance(token, str):
+        return {}
+    parts = token.split(".")
+    if len(parts) >= 2:
+        try:
+            import base64
+            payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
+            payload_bytes = base64.urlsafe_b64decode(payload_b64.encode("ascii"))
+            return json.loads(payload_bytes.decode("utf-8", errors="replace"))
+        except Exception:
+            pass
+    return {}
+
+
+def is_jwt_expired(token: Optional[str], buffer_seconds: int = 60) -> bool:
+    """Check if a JWT token is expired or within buffer_seconds of expiration."""
+    if not token or not str(token).strip():
+        return True
+    payload = decode_jwt_payload(token)
+    exp = payload.get("exp")
+    if exp is not None:
+        return (time.time() + buffer_seconds) >= float(exp)
+    return False
+
+
+def _extract_account_id(access_token: str) -> Optional[str]:
+    """Helper to extract account ID from a Crunchyroll bearer token."""
+    claims = decode_jwt_payload(access_token)
+    return (
+        claims.get("account_id")
+        or claims.get("etp_user_id")
+        or (claims.get("scopes", {}).get("cr", {}).get("acc_id"))
+        or claims.get("sub")
+    )
+
+
+def validate_profile_pin(account_id: str, profile_id: str, pin: str, access_token: str) -> str:
+    """Validate a profile PIN with Crunchyroll and obtain a CrPassToken."""
+    url = f"https://www.crunchyroll.com/auth/v1/{account_id}/passtoken"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+    }
+    payload = {
+        "credential_type": "profile_pin",
+        "profile_id": profile_id,
+        "value": str(pin).strip(),
+    }
+    res = requests.post(url, headers=headers, json=payload, timeout=15)
+    if res.status_code == 200:
+        data = res.json()
+        return data.get("code", "")
+    elif res.status_code == 401:
+        raise ValueError("Invalid profile PIN")
+    else:
+        raise RuntimeError(f"PIN validation failed ({res.status_code}): {res.text}")
+
+
+def get_access_token(
+    etp_rt: str,
+    profile_id: Optional[str] = None,
+    pass_token: Optional[str] = None,
+    force_refresh: bool = False,
+) -> str:
+    """Swap session cookie / refresh token for a bearer token, scoped to profile if specified."""
     now = time.time()
+    explicit_pid = bool(profile_id and str(profile_id).strip())
+    target_pid = (profile_id or "").strip()
+    if not target_pid:
+        try:
+            cfg = load_config()
+            target_pid = (cfg.get("selected_profile_id") or "").strip()
+        except Exception:
+            pass
+
+    cache_key = f"{etp_rt}:{target_pid}" if target_pid else etp_rt
     with _TOKEN_CACHE_LOCK:
-        if not force_refresh and etp_rt in _TOKEN_CACHE:
-            cached_token, expire_at = _TOKEN_CACHE[etp_rt]
+        if not force_refresh and cache_key in _TOKEN_CACHE:
+            cached_token, expire_at = _TOKEN_CACHE[cache_key]
             if now < expire_at:
                 return cached_token
 
@@ -165,18 +245,84 @@ def get_access_token(etp_rt: str, force_refresh: bool = False) -> str:
         "Content-Type": "application/x-www-form-urlencoded",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
     }
+
+    # If target profile specified but no pass_token passed, check if a PIN was remembered in config
+    if target_pid and not pass_token:
+        try:
+            cfg = load_config()
+            saved_pins = dict(cfg.get("saved_profile_pins") or {})
+            saved_pin = saved_pins.get(target_pid)
+            if saved_pin:
+                acc_tok = None
+                with _TOKEN_CACHE_LOCK:
+                    cached_acc = _TOKEN_CACHE.get(etp_rt)
+                    if cached_acc and not is_jwt_expired(cached_acc[0]):
+                        acc_tok = cached_acc[0]
+                if not acc_tok:
+                    d_acc = {"grant_type": "etp_rt_cookie", "device_id": dev_id, "device_type": "Chrome on Windows"}
+                    r_acc = requests.post(url, headers=headers, cookies={"device_id": dev_id, "etp_rt": etp_rt}, data=d_acc, timeout=15)
+                    if r_acc.status_code == 200:
+                        acc_tok = r_acc.json().get("access_token", "")
+                        with _TOKEN_CACHE_LOCK:
+                            _TOKEN_CACHE[etp_rt] = (acc_tok, now + 270)
+                if acc_tok:
+                    aid = _extract_account_id(acc_tok)
+                    if aid:
+                        try:
+                            pass_token = validate_profile_pin(aid, target_pid, saved_pin, acc_tok)
+                        except Exception:
+                            # Stale saved PIN: purge immediately
+                            saved_pins.pop(target_pid, None)
+                            save_config({"saved_profile_pins": saved_pins})
+        except Exception:
+            pass
+
+    if pass_token:
+        headers["CrPassToken"] = pass_token
+
     cookies = {
         "device_id": dev_id,
         "etp_rt": etp_rt,
     }
-    data = {
-        "grant_type": "etp_rt_cookie",
-        "device_id": dev_id,
-        "device_type": "Chrome on Windows",
-    }
+    if target_pid:
+        data = {
+            "grant_type": "refresh_token_profile_id",
+            "refresh_token": etp_rt,
+            "profile_id": target_pid,
+            "device_id": dev_id,
+            "device_type": "Chrome on Windows",
+            "scope": "offline_access",
+        }
+    else:
+        data = {
+            "grant_type": "etp_rt_cookie",
+            "device_id": dev_id,
+            "device_type": "Chrome on Windows",
+        }
 
     response = requests.post(url, headers=headers, cookies=cookies, data=data, timeout=20)
     if response.status_code != 200:
+        # If profile-specific token refresh failed without a pass_token, fallback to account-level cookie grant
+        if target_pid and not pass_token:
+            data_fallback = {
+                "grant_type": "etp_rt_cookie",
+                "device_id": dev_id,
+                "device_type": "Chrome on Windows",
+            }
+            fb_resp = requests.post(url, headers={"Authorization": headers["Authorization"], "Content-Type": headers["Content-Type"], "User-Agent": headers["User-Agent"]}, cookies=cookies, data=data_fallback, timeout=20)
+            if fb_resp.status_code == 200:
+                json_resp = fb_resp.json()
+                token = json_resp.get("access_token", "")
+                expires_in = int(json_resp.get("expires_in", 300))
+                with _TOKEN_CACHE_LOCK:
+                    _TOKEN_CACHE[etp_rt] = (token, now + max(10, expires_in - 30))
+                if explicit_pid:
+                    # Profile switch itself failed (e.g. PIN required), raise so caller knows
+                    raise RuntimeError(
+                        f"Profile switch failed (status {response.status_code}): {response.text}"
+                    )
+                # Saved profile was PIN protected; return fallback account token so app stays authenticated
+                return token
         raise RuntimeError(
             f"Failed to get access token (status {response.status_code}): {response.text}"
         )
@@ -185,8 +331,61 @@ def get_access_token(etp_rt: str, force_refresh: bool = False) -> str:
     token = json_resp.get("access_token", "")
     expires_in = int(json_resp.get("expires_in", 300))
     with _TOKEN_CACHE_LOCK:
-        _TOKEN_CACHE[etp_rt] = (token, now + max(10, expires_in - 30))
+        _TOKEN_CACHE[cache_key] = (token, now + max(10, expires_in - 30))
+        if cache_key != etp_rt:
+            _TOKEN_CACHE[etp_rt] = (token, now + max(10, expires_in - 30))
     return token
+
+
+def switch_profile(
+    etp_rt: str,
+    profile_id: str,
+    pin: Optional[str] = None,
+    account_id: Optional[str] = None,
+    remember_pin: bool = False,
+) -> str:
+    """Switch active profile, validating PIN if protected, and persisting selection and PIN in config."""
+    cfg = load_config()
+    saved_pins = dict(cfg.get("saved_profile_pins") or {})
+    pass_token = None
+
+    clean_pin = str(pin).strip() if (pin and str(pin).strip()) else None
+    effective_pin = clean_pin or saved_pins.get(profile_id)
+
+    if effective_pin:
+        curr_token = get_access_token(etp_rt)
+        target_aid = (account_id or "").strip() or _extract_account_id(curr_token)
+        if target_aid:
+            try:
+                pass_token = validate_profile_pin(target_aid, profile_id, effective_pin, curr_token)
+            except ValueError as ve:
+                # Invalid PIN (e.g. user changed it on Crunchyroll): purge remembered PIN immediately
+                if profile_id in saved_pins:
+                    saved_pins.pop(profile_id, None)
+                    save_config({"saved_profile_pins": saved_pins})
+                raise ValueError("Invalid profile PIN") from ve
+
+    try:
+        token = get_access_token(etp_rt, profile_id=profile_id, pass_token=pass_token, force_refresh=True)
+        updates: Dict[str, Any] = {"selected_profile_id": profile_id}
+        if clean_pin and remember_pin:
+            saved_pins[profile_id] = clean_pin
+            updates["saved_profile_pins"] = saved_pins
+        elif clean_pin and not remember_pin:
+            # If user explicitly provided a pin without remember, clear any previously saved pin
+            if profile_id in saved_pins:
+                saved_pins.pop(profile_id, None)
+                updates["saved_profile_pins"] = saved_pins
+        save_config(updates)
+        return token
+    except Exception as e:
+        err_str = str(e)
+        if "invalid_grant" in err_str or "invalid_credentials" in err_str:
+            if profile_id in saved_pins:
+                saved_pins.pop(profile_id, None)
+                save_config({"saved_profile_pins": saved_pins})
+            raise PermissionError("PIN_REQUIRED")
+        raise
 
 
 def get_guest_token(force_refresh: bool = False) -> str:

@@ -4,42 +4,57 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>crunchyroller</title>
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3.8.0">
+  <link rel="icon" type="image/png" href="/favicon.png?v=3.8.1">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=3.8.0">
+  <link rel="stylesheet" href="/css/style.css?v=3.8.1">
 </head>
 <body>
 
   <header>
     <div class="brand">
-      <img src="/logo.svg?v=3.8.0" alt="logo" class="brand-icon">
+      <img src="/logo.png?v=3.8.1" alt="logo" class="brand-icon">
     </div>
 
     <nav class="nav-tabs" id="nav-tabs">
-      <button class="nav-tab active" data-tab="dashboard" onclick="switchTab('dashboard')">
+      <button class="nav-tab active" data-tab="dashboard" data-tooltip="dashboard" onclick="switchTab('dashboard')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
           <polyline points="7 10 12 15 17 10"></polyline>
           <line x1="12" y1="15" x2="12" y2="3"></line>
         </svg>
-        <span>dashboard</span>
+        <span class="nav-tab-label">dashboard</span>
       </button>
-      <button class="nav-tab" data-tab="browse" onclick="switchTab('browse')">
+      <button class="nav-tab" data-tab="browse" data-tooltip="recently added" onclick="switchTab('browse')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="3" y="3" width="7" height="7"></rect>
           <rect x="14" y="3" width="7" height="7"></rect>
           <rect x="14" y="14" width="7" height="7"></rect>
           <rect x="3" y="14" width="7" height="7"></rect>
         </svg>
-        <span>recently added</span>
+        <span class="nav-tab-label">recently added</span>
       </button>
-      <button class="nav-tab" data-tab="settings" onclick="switchTab('settings')">
+      <button class="nav-tab" data-tab="watchlist" data-tooltip="watchlist" onclick="switchTab('watchlist')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+        </svg>
+        <span class="nav-tab-label">watchlist</span>
+      </button>
+      <button class="nav-tab" data-tab="autodl" data-tooltip="auto-dl" onclick="switchTab('autodl')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"></polyline>
+          <polyline points="1 20 1 14 7 14"></polyline>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+        </svg>
+        <span class="nav-tab-label">auto-dl</span>
+        <span class="nav-tab-badge" id="nav-autodl-badge" style="display:none;">0</span>
+      </button>
+      <button class="nav-tab" data-tab="settings" data-tooltip="settings" onclick="switchTab('settings')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="3"></circle>
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
         </svg>
-        <span>settings</span>
+        <span class="nav-tab-label">settings</span>
       </button>
     </nav>
 
@@ -176,6 +191,7 @@
                   <button type="button" class="btn-s" id="search-select-all-btn" onclick="toggleSelectAllSearchResults(true)">select all</button>
                   <button type="button" class="btn-s" id="search-select-none-btn" onclick="toggleSelectAllSearchResults(false)" style="display:none;">none</button>
                   <button type="button" class="btn-s btn-search-fetch-selected" id="search-fetch-selected-btn" onclick="fetchSelectedSearchAnime()" style="display:none;">fetch selected (0)</button>
+                  <button type="button" class="btn-s btn-search-autodl-selected" id="search-autodl-selected-btn" onclick="monitorSelectedSearchAnime()" style="display:none;">auto-dl selected (0)</button>
                   <button type="button" class="btn-s search-close-btn" onclick="closeSearchResults()">close</button>
                 </div>
               </div>
@@ -188,6 +204,7 @@
             <div class="row row-url-input">
               <textarea id="url" rows="1" placeholder="paste crunchyroll url(s) — one per line, or comma-separated" class="multi-url-input"></textarea>
               <button type="button" id="fetch-btn" onclick="fetchUrl()">fetch</button>
+              <button type="button" id="url-autodl-btn" class="btn-s" onclick="monitorUrlInput()" title="Add entered URL(s) to Auto-Downloader">auto-dl</button>
             </div>
             <div class="url-input-hint">Tip: paste multiple anime URLs at once (one per line or comma-separated)</div>
           </div>
@@ -310,6 +327,16 @@
             <input type="hidden" id="audio-only-format" value="mka">
           </div>
 
+          <div class="setting-toggle-card" style="margin-top: 16px;">
+            <label class="check-row" for="audio-fallback">
+              <input type="checkbox" id="audio-fallback" checked onchange="saveCfg()">
+              <div class="toggle-text-wrap">
+                <div class="toggle-title">audio language fallback</div>
+                <div class="toggle-desc">Fall back to original audio (Japanese) if selected dub is missing. If turned off, unavailable episodes are skipped.</div>
+              </div>
+            </label>
+          </div>
+
           <!-- Zombie Stream Purger -->
           <div class="cache-cleaner-box">
             <div class="cache-cleaner-info">
@@ -371,7 +398,7 @@
           <div class="cache-cleaner-box">
             <div class="cache-cleaner-info">
               <div class="toggle-title">software version</div>
-              <div class="cache-stats-text" id="version-display">v3.8.0</div>
+              <div class="cache-stats-text" id="version-display">v3.8.1</div>
             </div>
             <button class="btn-s" id="btn-check-updates" onclick="checkForUpdates(true)" title="Check GitHub for newer releases">check for updates</button>
           </div>
@@ -520,6 +547,14 @@
                 </svg>
                 <span>instant download</span>
               </button>
+              <button type="button" class="btn-s btn-monitor-batch" onclick="monitorSelectedCatalog()" title="Enable auto-download for all selected anime">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="23 4 23 10 17 10"></polyline>
+                  <polyline points="1 20 1 14 7 14"></polyline>
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                </svg>
+                <span>auto-download</span>
+              </button>
               <button type="button" class="btn-s btn-clear" onclick="selectAllCatalog(false)" title="Clear selection">
                 <span>cancel</span>
               </button>
@@ -532,6 +567,279 @@
           </div>
           <div id="catalog-error" class="catalog-error" style="display:none;"></div>
           <div id="catalog-list" class="catalog-grid"></div>
+        </div>
+      </div>
+
+      <!-- ============================================== -->
+      <!-- TAB: WATCHLIST                                 -->
+      <!-- ============================================== -->
+      <div id="tab-watchlist" class="tab-pane" style="display:none;">
+        <div class="card" id="watchlist-card">
+          <div class="card-label-row catalog-header-row">
+            <div class="catalog-header-left">
+              <button type="button" class="btn-s btn-back" onclick="switchTab('dashboard')" title="Back to dashboard">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+                <span>dashboard</span>
+              </button>
+
+              <!-- Profile Switcher with actual avatar -->
+              <div class="watchlist-profile-dropdown-wrap" id="watchlist-profile-wrap" style="display:none;">
+                <button type="button" class="watchlist-profile-trigger" id="watchlist-profile-trigger" onclick="toggleWatchlistProfileMenu(event)" title="Switch profile">
+                  <img id="watchlist-profile-avatar" class="watchlist-profile-avatar" src="https://static.crunchyroll.com/assets/avatar/170x170/0001-cr-white-orange.png" alt="avatar" onerror="this.src='https://static.crunchyroll.com/assets/avatar/170x170/0001-cr-white-orange.png'">
+                  <span id="watchlist-profile-name" class="watchlist-profile-name">Profile</span>
+                  <svg class="watchlist-profile-chevron" width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="1 1 5 5 9 1"></polyline>
+                  </svg>
+                </button>
+                <div class="watchlist-profile-menu" id="watchlist-profile-menu" style="display:none;"></div>
+              </div>
+
+              <!-- Filter Dropdown Trigger & Menu -->
+              <div class="watchlist-dropdown-wrap" id="watchlist-filter-mode-wrap">
+                <button type="button" class="watchlist-control-trigger" id="watchlist-filter-trigger" onclick="toggleWatchlistFilterMenu(event)" title="Filter watchlist items">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+                  </svg>
+                  <span id="watchlist-filter-label">All</span>
+                  <svg class="watchlist-chevron" width="8" height="5" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="1 1 5 5 9 1"></polyline>
+                  </svg>
+                </button>
+                <div class="watchlist-control-menu" id="watchlist-filter-menu" style="display:none;">
+                  <div class="watchlist-menu-item active" onclick="setWatchlistFilterMode('all')">
+                    <span>All Items</span>
+                    <svg class="watchlist-check" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="watchlist-menu-item" onclick="setWatchlistFilterMode('unwatched')">
+                    <span>Unwatched</span>
+                  </div>
+                  <div class="watchlist-menu-item" onclick="setWatchlistFilterMode('in-progress')">
+                    <span>In Progress</span>
+                  </div>
+                  <div class="watchlist-menu-item" onclick="setWatchlistFilterMode('watched')">
+                    <span>Watched</span>
+                  </div>
+                  <div class="watchlist-menu-item" onclick="setWatchlistFilterMode('favorites')">
+                    <span>Favorites only</span>
+                  </div>
+                  <div class="watchlist-menu-item" onclick="setWatchlistFilterMode('monitored')">
+                    <span>Monitored for Auto-DL</span>
+                  </div>
+                  <div class="watchlist-menu-sep"></div>
+                  <div class="watchlist-menu-item" onclick="setWatchlistFilterMode('series')">
+                    <span>Series only</span>
+                  </div>
+                  <div class="watchlist-menu-item" onclick="setWatchlistFilterMode('movies')">
+                    <span>Movies only</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Sort Dropdown Trigger & Menu -->
+              <div class="watchlist-dropdown-wrap" id="watchlist-sort-wrap">
+                <button type="button" class="watchlist-control-trigger" id="watchlist-sort-trigger" onclick="toggleWatchlistSortMenu(event)" title="Sort watchlist">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 18a1 1 0 0 1 0 2H3a1 1 0 0 1 0-2h6zM21 4a1 1 0 0 1 0 2H3a1 1 0 0 1 0-2h18zm-6 7a1 1 0 0 1 0 2H3a1 1 0 0 1 0-2h12z"></path>
+                  </svg>
+                  <span id="watchlist-sort-label">Recent Activity</span>
+                  <svg class="watchlist-chevron" width="8" height="5" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="1 1 5 5 9 1"></polyline>
+                  </svg>
+                </button>
+                <div class="watchlist-control-menu" id="watchlist-sort-menu" style="display:none;">
+                  <div class="watchlist-menu-item active" onclick="setWatchlistSort('recent')">
+                    <span>Recent Activity</span>
+                    <svg class="watchlist-check" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="watchlist-menu-item" onclick="setWatchlistSort('alpha-asc')">
+                    <span>Alphabetical (A - Z)</span>
+                  </div>
+                  <div class="watchlist-menu-item" onclick="setWatchlistSort('alpha-desc')">
+                    <span>Alphabetical (Z - A)</span>
+                  </div>
+                  <div class="watchlist-menu-sep"></div>
+                  <div class="watchlist-menu-item" onclick="setWatchlistSort('watched-newest')">
+                    <span>Recently Watched</span>
+                  </div>
+                  <div class="watchlist-menu-item" onclick="setWatchlistSort('updated-newest')">
+                    <span>Recently Updated</span>
+                  </div>
+                  <div class="watchlist-menu-item" onclick="setWatchlistSort('added-newest')">
+                    <span>Recently Added</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="catalog-search-wrap">
+                <svg class="catalog-search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input type="text" id="watchlist-filter-input" class="catalog-filter-input" placeholder="filter watchlist..." oninput="filterWatchlist(this.value)" autocomplete="off">
+                <button type="button" id="watchlist-filter-clear" class="catalog-filter-clear" onclick="clearWatchlistFilter()" style="display:none;" title="Clear filter">&times;</button>
+              </div>
+            </div>
+            <div class="catalog-actions">
+              <button type="button" class="btn-s" id="watchlist-select-all-btn" onclick="toggleSelectAllWatchlist()" title="Toggle select all visible titles">
+                <span>select all</span>
+              </button>
+              <button type="button" class="btn-s" onclick="loadUserWatchlist(true)" id="btn-load-watchlist" title="Refresh watchlist from Crunchyroll">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="23 4 23 10 17 10"></polyline>
+                  <polyline points="1 20 1 14 7 14"></polyline>
+                  <path d="M3.51 9a9 9 0 0 1 14.13-3.36L23 10"></path>
+                  <path d="M20.49 15a9 9 0 0 1-14.13 3.36L1 14"></path>
+                </svg>
+                <span>refresh</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Multi-select action bar when items are selected -->
+          <div id="watchlist-batch-bar" class="catalog-batch-bar" style="display:none;">
+            <div class="catalog-batch-info">
+              <span id="watchlist-selected-count">0 animes selected</span>
+            </div>
+            <div class="catalog-batch-actions">
+              <button type="button" class="btn-s catalog-batch-fetch" onclick="fetchSelectedWatchlist()" title="Fetch selected anime into dashboard tree">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+                <span>fetch selected</span>
+              </button>
+              <button type="button" class="btn-s btn-pri catalog-batch-dl" onclick="instantDownloadSelectedWatchlist()" title="Directly enqueue all episodes to download queue">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>instant download</span>
+              </button>
+              <button type="button" class="btn-s btn-monitor-batch" onclick="monitorSelectedWatchlist()" title="Enable auto-download for all selected anime">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="23 4 23 10 17 10"></polyline>
+                  <polyline points="1 20 1 14 7 14"></polyline>
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                </svg>
+                <span>auto-download</span>
+              </button>
+              <button type="button" class="btn-s btn-clear" onclick="selectAllWatchlist(false)" title="Clear selection">
+                <span>cancel</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Unauthenticated notice -->
+          <div id="watchlist-unauth" class="catalog-error" style="display:none; text-align:center; padding: 2.5rem 1rem;">
+            <div style="font-size:1.1rem; font-weight:600; margin-bottom:0.4rem; color:var(--text);">Crunchyroll login required</div>
+            <div style="font-size:0.85rem; color:var(--text-dim); max-width:440px; margin:0 auto 1.2rem;">
+              Log in with your account or paste your session cookie (<code>etp_rt</code>) in Settings to load and view your personal Watchlist.
+            </div>
+            <button type="button" class="btn-s btn-pri" onclick="switchTab('settings')" style="display:inline-flex;">go to settings</button>
+          </div>
+
+          <div id="watchlist-loading" class="catalog-loading" style="display:none;">
+            <div class="spinner"></div>
+            <span>fetching your Crunchyroll watchlist...</span>
+          </div>
+          <div id="watchlist-error" class="catalog-error" style="display:none;"></div>
+          <div id="watchlist-empty" class="catalog-empty" style="display:none; text-align:center; padding: 3rem 1rem; color:var(--text-dim);">
+            Your Crunchyroll watchlist is empty.
+          </div>
+          <div id="watchlist-list" class="catalog-grid"></div>
+        </div>
+      </div>
+
+      <!-- ============================================== -->
+      <!-- TAB 5: DEDICATED AUTO-DL / WATCHER VIEW        -->
+      <!-- ============================================== -->
+      <div id="tab-autodl" class="tab-pane" style="display:none;">
+        <div class="card" id="autodl-card">
+          <!-- Header row -->
+          <div class="card-label-row catalog-header-row autodl-header-row">
+            <div class="autodl-header-status" onclick="toggleWatcherMaster()" title="Click to pause or resume auto-downloader" style="cursor: pointer;">
+              <span class="watcher-pulse-dot" id="autodl-page-status-dot"></span>
+              <span id="autodl-page-status-text" class="autodl-status-title">Active</span>
+              <span class="autodl-sep">•</span>
+              <span id="autodl-page-count-text">Monitoring 0 anime</span>
+            </div>
+            <div class="autodl-top-actions">
+              <button type="button" class="btn-s btn-pri btn-autodl-toggle-add" id="btn-toggle-add-anime" onclick="toggleAutoDlSearch()" title="Search Crunchyroll to add anime">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                <span>add anime</span>
+              </button>
+              <div class="autodl-interval-picker" title="How often the auto-downloader checks for new episodes">
+                <span class="autodl-interval-label">check every</span>
+                <select id="watcher-interval" class="autodl-interval-select" onchange="saveWatcherSettings()" title="Auto-downloader check frequency">
+                  <option value="15">15m</option>
+                  <option value="30">30m</option>
+                  <option value="60" selected>1h</option>
+                  <option value="120">2h</option>
+                  <option value="360">6h</option>
+                  <option value="720">12h</option>
+                  <option value="1440">24h</option>
+                  <option value="0.5">30s (test)</option>
+                </select>
+              </div>
+              <button type="button" class="btn-s btn-autodl-scan" id="btn-autodl-scan-all" onclick="triggerWatcherCheckNow()" title="Check all monitored anime for new releases now">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                <span>check all now</span>
+              </button>
+              <button type="button" class="btn-s btn-autodl-master-pause" id="btn-autodl-master-pause" onclick="toggleWatcherMaster()" title="Pause or resume auto-downloader background checking">
+                <svg class="autodl-pause-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+                <svg class="autodl-resume-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:none;"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                <span id="btn-autodl-master-text">pause</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Filter Controls & Crunchyroll Search -->
+          <div class="autodl-filter-section">
+            <div class="autodl-filter-chips">
+              <button type="button" class="catalog-filter-chip active" data-filter="all" onclick="setAutoDlFilterMode('all')">all</button>
+              <button type="button" class="catalog-filter-chip" data-filter="active" onclick="setAutoDlFilterMode('active')">active</button>
+              <button type="button" class="catalog-filter-chip" data-filter="paused" onclick="setAutoDlFilterMode('paused')">paused</button>
+              <button type="button" class="catalog-filter-chip" data-filter="latest_only" onclick="setAutoDlFilterMode('latest_only')">future only</button>
+              <button type="button" class="catalog-filter-chip" data-filter="all_missing" onclick="setAutoDlFilterMode('all_missing')">all missing</button>
+              <button type="button" class="btn-icon autodl-search-icon-btn" id="btn-toggle-autodl-search" onclick="toggleAutoDlSearch()" title="Search Crunchyroll to add anime">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              </button>
+            </div>
+
+            <div class="autodl-search-wrapper" id="autodl-search-wrapper" style="display:none;">
+              <svg class="search-input-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              <input type="text" id="autodl-search-input" placeholder="Search Crunchyroll by title (e.g. Solo Leveling) or paste series URL / ID..." autocomplete="off" spellcheck="false" oninput="onAutoDlSearchInput(this.value)" onkeydown="onAutoDlSearchKeydown(event)">
+              <button type="button" id="autodl-search-clear" class="search-clear-btn" onclick="clearAutoDlSearch()" style="display:none;">&times;</button>
+              <select id="autodl-search-mode" class="autodl-mode-select autodl-search-mode-select" title="Monitoring mode for added anime">
+                <option value="latest_only">Future Only</option>
+                <option value="all_missing">All Missing</option>
+              </select>
+              <button type="button" class="btn-s btn-pri btn-autodl-add" id="btn-autodl-search-add" onclick="submitAutoDlSearch()" style="display:none;">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                <span id="btn-autodl-search-text">monitor</span>
+              </button>
+              <button type="button" class="btn-icon btn-autodl-search-close" onclick="toggleAutoDlSearch(false)" title="Close search">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+              <div id="autodl-search-dropdown" class="autodl-search-dropdown" style="display:none;"></div>
+            </div>
+          </div>
+
+          <!-- Empty State -->
+          <div id="autodl-empty-view" class="catalog-empty autodl-empty" style="display:none;">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:0.35; margin-bottom:12px;">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <polyline points="1 20 1 14 7 14"></polyline>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+            </svg>
+            <div class="autodl-empty-title" id="autodl-empty-title">No anime monitored yet</div>
+            <div class="autodl-empty-desc" id="autodl-empty-desc">Paste a Crunchyroll series URL above, or click "auto-dl" on any anime card across Search, Recently Added, or Watchlist.</div>
+          </div>
+
+          <!-- Grid of Monitored Anime -->
+          <div id="autodl-series-grid" class="catalog-grid autodl-grid"></div>
         </div>
       </div>
 
@@ -578,8 +886,70 @@
     </button>
   </div>
 
+  <!-- Profile PIN Modal -->
+  <div id="profile-pin-modal" class="modal-backdrop" style="display:none;" onclick="handlePinModalBackdropClick(event)">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <img id="modal-pin-avatar" class="modal-pin-avatar" src="" alt="avatar" onerror="this.src='https://static.crunchyroll.com/assets/avatar/170x170/0001-cr-white-orange.png'">
+        <div class="modal-pin-title-box">
+          <div class="modal-title">Enter Profile PIN</div>
+          <div id="modal-pin-subtitle" class="modal-subtitle">Profile is protected</div>
+        </div>
+      </div>
+      <form id="profile-pin-form" onsubmit="submitProfilePin(event)">
+        <div class="modal-body">
+          <input type="password" id="profile-pin-input" class="pin-input" maxlength="8" placeholder="••••" autocomplete="off" autofocus inputmode="numeric">
+          <div class="modal-remember-wrap">
+            <label class="modal-remember-label">
+              <input type="checkbox" id="profile-pin-remember" class="cb-custom" checked>
+              <span>Remember my PIN on this device</span>
+            </label>
+          </div>
+          <div id="modal-pin-error" class="modal-error" style="display:none;"></div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-s" onclick="closeProfilePinModal()">cancel</button>
+          <button type="submit" class="btn-s btn-pri" id="btn-submit-pin">unlock</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Series Watcher / Auto-Downloader Management Modal -->
+  <div id="watcher-modal" class="modal-backdrop" style="display:none;" onclick="handleWatcherModalBackdropClick(event)">
+    <div class="modal-dialog modal-dialog-lg">
+      <div class="modal-header">
+        <div class="modal-watcher-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+        </div>
+        <div class="modal-pin-title-box">
+          <div class="modal-title">Auto-Downloader (Series Watcher)</div>
+          <div class="modal-subtitle" id="watcher-modal-subtitle">Monitors ongoing anime and automatically downloads newly aired episodes</div>
+        </div>
+        <button type="button" class="btn-s btn-watcher-modal-check" onclick="triggerWatcherCheckNow()" title="Scan all monitored anime now">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+          <span>check now</span>
+        </button>
+      </div>
+      <div class="modal-body modal-watcher-body">
+        <div id="watcher-series-list" class="watcher-series-list"></div>
+        <div id="watcher-empty-list" class="watcher-empty-list" style="display:none;">
+          <p>No anime currently monitored for auto-downloading.</p>
+          <span class="watcher-empty-hint">Click "auto-dl" on any anime in your Watchlist or Catalog to start auto-downloading new episodes when they air.</span>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-s" onclick="closeWatcherModal()">close</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast"></div>
-  <script src="/js/particles.js?v=3.8.0"></script>
-  <script src="/js/app.js?v=3.8.0"></script>
+  <script src="/js/particles.js?v=3.8.1"></script>
+  <script src="/js/app.js?v=3.8.1"></script>
 </body>
 </html>

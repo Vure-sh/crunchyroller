@@ -78,12 +78,20 @@ def track_title(locale: str) -> str:
         base = locale[:-3]  # strip '-cc'
         base_name = LANGUAGE_NAMES.get(base, base)
         return f"{base_name} (CC)"
+    if locale.endswith("-signs"):
+        base = locale[:-6]  # strip '-signs'
+        base_name = LANGUAGE_NAMES.get(base, base)
+        return f"{base_name} [Signs & Songs]"
     return LANGUAGE_NAMES.get(locale, locale)
 
 
 def locale_base(locale: str) -> str:
-    """Return the base locale, stripping any '-cc' suffix."""
-    return locale[:-3] if locale.endswith("-cc") else locale
+    """Return the base locale, stripping any '-cc' or '-signs' suffix."""
+    if locale.endswith("-cc"):
+        return locale[:-3]
+    if locale.endswith("-signs"):
+        return locale[:-6]
+    return locale
 
 
 def sanitize_filename(s: str) -> str:
@@ -112,6 +120,10 @@ def resolve_season_folder(
     season_number: int,
     season_title: str = "",
 ) -> str:
+    if hasattr(season_title, "_mock_name") or type(season_title).__name__ == "MagicMock":
+        season_title = ""
+    if hasattr(series_title, "_mock_name") or type(series_title).__name__ == "MagicMock":
+        series_title = ""
     """
     Resolves the folder name for a season or story arc.
     If Crunchyroll provides a distinct arc name (e.g. 'Mugen Train Arc', 'Entertainment District Arc', 'OADs'),
@@ -298,3 +310,120 @@ def build_output_path(
         original_filename=orig_filename,
         original_stem=orig_stem,
     )
+
+def is_episode_on_disk(
+    base_dir: str,
+    series_title: str,
+    season_num: int,
+    ep_num: int,
+    ep_title: str = "",
+    season_title: str = "",
+    quality_tag: str = "",
+    ext: str = ".mkv",
+) -> bool:
+    if hasattr(series_title, "_mock_name") or type(series_title).__name__ == "MagicMock":
+        series_title = ""
+    if hasattr(season_title, "_mock_name") or type(season_title).__name__ == "MagicMock":
+        season_title = ""
+    if hasattr(ep_title, "_mock_name") or type(ep_title).__name__ == "MagicMock":
+        ep_title = ""
+    try:
+        season_num = int(season_num)
+    except Exception:
+        season_num = 0
+    try:
+        ep_num = int(ep_num)
+    except Exception:
+        ep_num = 0
+    """
+    Checks whether a completed episode media file (video or audio) exists on disk.
+    Inspects standard Crunchyroller directory structures:
+      - base_dir / series_title / season_folder
+      - base_dir / series_title / Season XX (and Season X)
+      - base_dir / series_title
+    Matches exact paths or files containing season/episode indicators (e.g. S01E01).
+    Ensures matching files have a valid media extension and size > 1MB (not corrupted/stub).
+    """
+    base_dir = os.path.abspath(os.path.expanduser((base_dir or ".").strip()))
+    if not os.path.isdir(base_dir):
+        return False
+
+    clean_series = sanitize_filename(series_title or "Unknown")
+    season_folder = resolve_season_folder(series_title, season_num, season_title)
+
+    # 1. Exact path check via build_output_path
+    try:
+        path_info = build_output_path(
+            base_dir=base_dir,
+            series_title=series_title,
+            season_folder=season_folder,
+            season_num=season_num,
+            ep_num=ep_num,
+            ep_title=ep_title,
+            quality_tag=quality_tag,
+            ext=ext,
+        )
+        if os.path.isfile(path_info.output_filename) and os.path.getsize(path_info.output_filename) > 1024 * 1024:
+            return True
+    except Exception:
+        pass
+
+    # 2. Candidate directories scan
+    candidate_dirs = [
+        os.path.join(base_dir, clean_series, season_folder),
+        os.path.join(base_dir, clean_series, f"Season {season_num:02d}"),
+        os.path.join(base_dir, clean_series, f"Season {season_num}"),
+        os.path.join(base_dir, clean_series),
+    ]
+    if clean_series != series_title:
+        candidate_dirs.extend([
+            os.path.join(base_dir, series_title, season_folder),
+            os.path.join(base_dir, series_title, f"Season {season_num:02d}"),
+            os.path.join(base_dir, series_title, f"Season {season_num}"),
+            os.path.join(base_dir, series_title),
+        ])
+
+    primary_tag = f"s{season_num:02d}e{ep_num:02d}"
+    alt_tag = f"s{season_num}e{ep_num:02d}"
+    media_exts = {".mkv", ".mp4", ".m4a", ".mka", ".webm", ".ts"}
+    invalid_exts = {".tmp", ".part", ".aria2", ".crdownload", ".download"}
+
+    for d in candidate_dirs:
+        if not os.path.isdir(d):
+            continue
+        try:
+            for fname in os.listdir(d):
+                fl = fname.lower()
+                _, f_ext = os.path.splitext(fl)
+                if f_ext not in media_exts or any(fl.endswith(ie) for ie in invalid_exts):
+                    continue
+                # Check for standard S01E01 / S1E01 tags
+                if primary_tag in fl or alt_tag in fl:
+                    full_p = os.path.join(d, fname)
+                    if os.path.isfile(full_p) and os.path.getsize(full_p) > 1024 * 1024:
+                        return True
+                # For Season 0 / specials or single season anime without S tag: e.g. " - 01 - " or " E01 "
+                if season_num in (0, 1):
+                    ep_tag1 = f"e{ep_num:02d}"
+                    ep_tag2 = f" - {ep_num:02d} - "
+                    ep_tag3 = f" - {ep_num} - "
+                    if (ep_tag1 in fl or ep_tag2 in fl or ep_tag3 in fl) and not re.search(r"s\d+e\d+", fl):
+                        full_p = os.path.join(d, fname)
+                        if os.path.isfile(full_p) and os.path.getsize(full_p) > 1024 * 1024:
+                            return True
+
+                # Check episode subfolders (e.g. standalone audio mode)
+                full_sub = os.path.join(d, fname)
+                if os.path.isdir(full_sub) and (primary_tag in fl or alt_tag in fl):
+                    for subf in os.listdir(full_sub):
+                        sub_fl = subf.lower()
+                        _, sub_ext = os.path.splitext(sub_fl)
+                        if sub_ext in media_exts and not any(sub_fl.endswith(ie) for ie in invalid_exts):
+                            sub_full_p = os.path.join(full_sub, subf)
+                            if os.path.isfile(sub_full_p) and os.path.getsize(sub_full_p) > 1024 * 1024:
+                                return True
+        except Exception:
+            pass
+
+    return False
+

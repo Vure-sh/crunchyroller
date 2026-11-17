@@ -223,6 +223,7 @@ def process_url(client: CrunchyrollHttpClient, url: str, args: argparse.Namespac
             download_dir=dl_dir,
             resume=resume_flag,
             bitrate_mode=bitrate_mode,
+            audio_fallback=getattr(args, "audio_fallback", None),
         )
     elif content_type == "series":
         download_series(
@@ -394,6 +395,12 @@ def main() -> None:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Enable/disable cross-run resume for interrupted downloads (default: enabled)",
+    )
+    parser.add_argument(
+        "--audio-fallback",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Fallback to original audio if selected audio language is unavailable (default: enabled)",
     )
     parser.add_argument(
         "--clean-partials",

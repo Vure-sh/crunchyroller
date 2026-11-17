@@ -5,7 +5,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 from typing import Any, Dict, List, Optional
 
 from .types import EpisodeInfo, MediaTrack
@@ -97,16 +96,12 @@ def merge_everything(
     if chapters:
         try:
             chapters_content = generate_ffmetadata(chapters)
-            try:
-                fd, chapters_file = tempfile.mkstemp(prefix="cr_chap_", suffix=".txt")
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    f.write(chapters_content)
-            except Exception:
-                chapters_file = output_file + ".chapters.txt"
-                with open(chapters_file, "w", encoding="utf-8") as f:
-                    f.write(chapters_content)
+            chapters_file = output_file + ".chapters.txt"
+            with open(chapters_file, "w", encoding="utf-8") as f:
+                f.write(chapters_content)
             chapters_input_idx = audio_offset + len(audio_tracks) + len(sub_tracks)
             args.extend(["-i", chapters_file])
+            logger.info("Created chapter metadata file: %s (%d chapters)", chapters_file, len(chapters))
         except Exception as exc:
             logger.warning("Failed to prepare chapters metadata: %s", exc)
             chapters_file = None
@@ -187,7 +182,12 @@ def merge_everything(
         for j, sub in enumerate(sub_tracks):
             lang_code = LANGUAGE_CODES.get(locale_base(sub.locale), locale_base(sub.locale))
             base_title = track_title(locale_base(sub.locale))
-            title = f"{base_title} (CC)" if sub.is_cc else track_title(sub.locale)
+            if sub.is_cc:
+                title = f"{base_title} (CC)"
+            elif getattr(sub, "is_signs", False) or sub.locale.endswith("-signs"):
+                title = f"{base_title} [Signs & Songs]"
+            else:
+                title = track_title(sub.locale)
             args.extend([
                 f"-metadata:s:s:{j}", f"language={lang_code}",
                 f"-metadata:s:s:{j}", f"title={title}",
@@ -232,6 +232,21 @@ def merge_everything(
 
     args.append(output_file)
 
+    logger.info(
+        "Muxing streams with FFmpeg into: %s (video=%s, audio_tracks=%d, sub_tracks=%d, chapters=%s)",
+        output_file,
+        bool(has_video),
+        len(audio_tracks),
+        len(sub_tracks),
+        bool(chapters),
+    )
+    if sub_tracks:
+        logger.info(
+            "Muxing subtitle tracks: %s",
+            [f"locale={s.locale}, file={s.file}, cc={s.is_cc}, signs={getattr(s, 'is_signs', False)}, default={s.is_default}" for s in sub_tracks],
+        )
+    logger.info("FFmpeg command args: %s", " ".join(args))
+
     try:
         try:
             result = subprocess.run(
@@ -243,6 +258,7 @@ def merge_everything(
                 **get_subprocess_kwargs(),
             )
         except subprocess.TimeoutExpired as exc:
+            logger.error("FFmpeg timed out after 10 minutes while muxing %s", output_file)
             if os.path.exists(output_file):
                 try:
                     os.remove(output_file)
@@ -250,12 +266,16 @@ def merge_everything(
                     pass
             raise RuntimeError("ffmpeg timed out after 10 minutes while muxing") from exc
         if result.returncode != 0:
+            logger.error("FFmpeg muxing failed (exit code %d): %s", result.returncode, result.stderr)
             if os.path.exists(output_file):
                 try:
                     os.remove(output_file)
                 except OSError:
                     pass
             raise RuntimeError(f"ffmpeg failed: {result.stderr}")
+        else:
+            out_size_mb = os.path.getsize(output_file) / (1024 * 1024) if os.path.exists(output_file) else 0.0
+            logger.info("FFmpeg muxing succeeded: %s (%.2f MB)", output_file, out_size_mb)
     finally:
         if chapters_file and os.path.exists(chapters_file):
             try:

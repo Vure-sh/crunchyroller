@@ -71,7 +71,8 @@ from crunchyroll.http_client import CrunchyrollHttpClient
 from crunchyroll.queue import DownloadQueue
 from crunchyroll.session_pool import ConcurrencyConfig
 from crunchyroll.state_store import StateStore
-from crunchyroll.types import DEFAULT_DOWNLOAD_DIR
+from crunchyroll.types import AudioUnavailableError, DEFAULT_DOWNLOAD_DIR
+from crunchyroll.watcher import SeriesWatcher
 
 # root folder for static web assets
 _PROJECT_ROOT = getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -103,6 +104,7 @@ STATE = {
         "antiratelimit_jitter": max(2, min(15, int(initial_cfg.get("antiratelimit_jitter", 5)))),
         "antiratelimit_reduce_threads": bool(initial_cfg.get("antiratelimit_reduce_threads", True)),
         "audio_only_format": str(initial_cfg.get("audio_only_format", "mka")),
+        "audio_fallback": bool(initial_cfg.get("audio_fallback", True)),
     },
     "download": {
         "status":      "idle",
@@ -160,6 +162,27 @@ QUEUE = DownloadQueue(
     cooldown_range=(1.5, 3.0),
     cooldown_provider=get_effective_cooldown,
     state_store=STATE_STORE,
+)
+
+
+def _get_watcher_client():
+    with LOCK:
+        return CrunchyrollHttpClient(
+            etp_rt=STATE.get("etp_rt") or None,
+            username=STATE.get("android_username") or None,
+            password=STATE.get("android_password") or None,
+        )
+
+
+def _get_watcher_config():
+    with LOCK:
+        return dict(STATE.get("config", {}))
+
+
+WATCHER = SeriesWatcher(
+    queue=QUEUE,
+    client_factory=_get_watcher_client,
+    config_provider=_get_watcher_config,
 )
 
 
@@ -394,7 +417,7 @@ def open_path_in_file_manager(path: str) -> bool:
         return False
 
 
-def get_log_tail(lines: int = 150) -> str:
+def get_log_tail(lines: int = 500) -> str:
     """Safely reads the last N lines from crunchyroller.log."""
     log_file = get_log_path()
     if not os.path.exists(log_file):
@@ -527,6 +550,7 @@ def _run_download(items, vq, aq, al, sl, force_download=False):
             hedging = bool(STATE["config"].get("enable_hedging", False))
             resume = bool(STATE["config"].get("enable_resume", True))
             bitrate_mode = str(STATE["config"].get("bitrate_mode", "highest"))
+            audio_fallback = bool(STATE["config"].get("audio_fallback", True))
             download_episode(
                 client=client, base_content_id=ep_id, info=info,
                 audio_langs=a_langs, subs_langs=s_langs,
@@ -537,6 +561,7 @@ def _run_download(items, vq, aq, al, sl, force_download=False):
                 download_dir=download_dir,
                 resume=resume,
                 bitrate_mode=bitrate_mode,
+                audio_fallback=audio_fallback,
                 concurrency_config=ConcurrencyConfig(
                     min_workers=1 if workers_cnt <= 2 else max(2, workers_cnt // 2),
                     max_workers=workers_cnt,
@@ -558,6 +583,9 @@ def _run_download(items, vq, aq, al, sl, force_download=False):
                 with LOCK:
                     STATE["download"].update(status="canceled", episode=f"canceled: {label}", speed="", track="canceled")
                 return
+            elif isinstance(e, AudioUnavailableError):
+                _log(f"skipped: {label} ({e})")
+                continue
             _log(f"error on {ep_id}: {e}")
             logger.error("Download failed for %s: %s", ep_id, e, exc_info=True)
             with LOCK:
@@ -691,7 +719,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "tasks": q_state.get("tasks", []),
                     "log_path": get_log_path(),
                     "version": __version__,
+                    "watcher": WATCHER.get_status(),
                 })
+            return
+
+        elif path == "/api/watcher/status":
+            self._json({"success": True, **WATCHER.get_status()})
             return
 
         elif path == "/api/browse":
@@ -716,6 +749,79 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._json({
                     "success": False,
                     "error": str(e),
+                }, 500)
+            return
+
+        elif path == "/api/profiles":
+            has_auth = bool(STATE.get("etp_rt") or (STATE.get("android_username") and STATE.get("android_password")))
+            if not has_auth:
+                self._json({
+                    "success": False,
+                    "error": "Authentication required. Please log in or provide etp_rt in Settings.",
+                    "profiles": [],
+                }, 401)
+                return
+
+            client = CrunchyrollHttpClient(
+                etp_rt=STATE.get("etp_rt") or None,
+                username=STATE.get("android_username") or None,
+                password=STATE.get("android_password") or None,
+            )
+            try:
+                from crunchyroll.api import get_user_profiles, get_active_profile_id
+                profiles = get_user_profiles(client)
+                active_pid = get_active_profile_id(client)
+                self._json({
+                    "success": True,
+                    "profiles": profiles,
+                    "active_profile_id": active_pid,
+                })
+            except Exception as e:
+                self._json({
+                    "success": False,
+                    "error": str(e),
+                    "profiles": [],
+                }, 500)
+            return
+
+        elif path == "/api/watchlist":
+            has_auth = bool(STATE.get("etp_rt") or (STATE.get("android_username") and STATE.get("android_password")))
+            if not has_auth:
+                self._json({
+                    "success": False,
+                    "error": "Authentication required. Please log in or provide etp_rt in Settings.",
+                    "items": [],
+                    "total": 0,
+                }, 401)
+                return
+
+            client = CrunchyrollHttpClient(
+                etp_rt=STATE.get("etp_rt") or None,
+                username=STATE.get("android_username") or None,
+                password=STATE.get("android_password") or None,
+            )
+            with LOCK:
+                subs_lang = STATE["config"].get("subs_lang", "en-US")
+            locale = subs_lang if subs_lang and subs_lang.lower() not in ("all", "*") else "en-US"
+            qs = parse_qs(parsed_url.query)
+            profile_id = qs.get("profile_id", [""])[0]
+
+            try:
+                from crunchyroll.api import get_user_watchlist, get_active_profile_id
+                items = get_user_watchlist(client, profile_id=profile_id, locale=locale)
+                active_pid = get_active_profile_id(client)
+                self._json({
+                    "success": True,
+                    "items": items,
+                    "total": len(items),
+                    "active_profile_id": active_pid,
+                })
+            except Exception as e:
+                self._json({
+                    "success": False,
+                    "error": str(e),
+                    "items": [],
+                    "total": 0,
                 }, 500)
             return
 
@@ -941,17 +1047,35 @@ class Handler(http.server.BaseHTTPRequestHandler):
             data = json.loads(raw)
         except Exception:
             data = {}
+        if not isinstance(data, dict):
+            if isinstance(data, str):
+                try:
+                    data = json.loads(data)
+                except Exception:
+                    data = {}
+            if not isinstance(data, dict):
+                data = {}
 
         if path == "/api/login":
             tok = data.get("etp_rt", "").strip()
             if not tok:
                 self._json({"success": False, "error": "paste your etp_rt token"}, 400); return
             try:
-                CrunchyrollHttpClient(etp_rt=tok)
-                with LOCK: STATE["etp_rt"] = tok
-                save_config({"etp_rt": tok})
+                from crunchyroll.auth import get_access_token
+                get_access_token(tok, force_refresh=True)
+                with LOCK:
+                    STATE["etp_rt"] = tok
+                    STATE["android_token"] = ""
+                save_config({
+                    "etp_rt": tok,
+                    "android_access_token": None,
+                    "android_refresh_token": None,
+                    "username": None,
+                })
+                logger.info("Successfully authenticated via etp_rt web token.")
                 self._json({"success": True})
             except Exception as e:
+                logger.error("Authentication via etp_rt failed: %s", e)
                 self._json({"success": False, "error": str(e)}, 401)
 
         elif path == "/api/login-credentials":
@@ -965,19 +1089,62 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 acc_tok, ref_tok = login_with_android_tv(username, password)
                 with LOCK:
                     STATE["android_token"] = acc_tok
+                    STATE["etp_rt"] = ""
                 save_config({
                     "android_access_token": acc_tok,
                     "android_refresh_token": ref_tok,
                     "username": username,
+                    "etp_rt": None,
                 })
+                logger.info("Successfully authenticated via Android TV credentials for user: %s", username)
                 self._json({"success": True, "message": "Logged in successfully!"})
             except Exception as e:
+                logger.error("Authentication via Android TV credentials failed: %s", e)
                 self._json({"success": False, "error": str(e)}, 401)
+
+        elif path == "/api/profiles/switch":
+            has_auth = bool(STATE.get("etp_rt") or (STATE.get("android_username") and STATE.get("android_password")))
+            if not has_auth:
+                self._json({"success": False, "error": "Authentication required"}, 401)
+                return
+            profile_id = (data.get("profile_id") or "").strip()
+            pin = (data.get("pin") or "").strip()
+            remember_pin = bool(data.get("remember_pin", False))
+            if not profile_id:
+                self._json({"success": False, "error": "profile_id is required"}, 400)
+                return
+            try:
+                from crunchyroll.auth import switch_profile
+                etp_rt = STATE.get("etp_rt", "")
+                if etp_rt:
+                    kwargs = {}
+                    if pin:
+                        kwargs["pin"] = pin
+                    if remember_pin:
+                        kwargs["remember_pin"] = True
+                    switch_profile(etp_rt, profile_id, **kwargs)
+                    with LOCK:
+                        STATE["config"]["selected_profile_id"] = profile_id
+                    self._json({"success": True, "active_profile_id": profile_id})
+                else:
+                    self._json({"success": False, "error": "Profile switching requires an active session"}, 400)
+            except ValueError as ve:
+                self._json({"success": False, "requires_pin": True, "error": str(ve)}, 400)
+            except PermissionError:
+                self._json({"success": False, "requires_pin": True, "error": "Profile PIN is required"}, 400)
+            except Exception as e:
+                err_str = str(e)
+                if "invalid_grant" in err_str or "invalid_credentials" in err_str:
+                    self._json({"success": False, "requires_pin": True, "error": "Profile PIN is required"}, 400)
+                else:
+                    logger.error("Failed to switch profile: %s", e)
+                    self._json({"success": False, "error": str(e)}, 500)
+            return
 
         elif path == "/api/config":
             with LOCK:
                 disk_cfg = load_config()
-                for k in ("video_quality", "audio_quality", "audio_lang", "subs_lang", "force_download", "download_dir", "workers", "enable_hedging", "enable_resume", "enable_logging", "bitrate_mode", "enable_antiratelimit", "antiratelimit_delay", "antiratelimit_jitter", "antiratelimit_reduce_threads", "audio_only_format"):
+                for k in ("video_quality", "audio_quality", "audio_lang", "subs_lang", "force_download", "download_dir", "workers", "enable_hedging", "enable_resume", "enable_logging", "bitrate_mode", "enable_antiratelimit", "antiratelimit_delay", "antiratelimit_jitter", "antiratelimit_reduce_threads", "audio_only_format", "audio_fallback"):
                     if k in data:
                         val = data[k]
                         if k == "download_dir":
@@ -1001,7 +1168,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                 val = max(2, min(15, int(val)))
                             except (TypeError, ValueError):
                                 val = 5
-                        elif k in ("enable_hedging", "enable_resume", "force_download", "enable_logging", "enable_antiratelimit", "antiratelimit_reduce_threads"):
+                        elif k in ("enable_hedging", "enable_resume", "force_download", "enable_logging", "enable_antiratelimit", "antiratelimit_reduce_threads", "audio_fallback"):
                             val = bool(val)
                         elif k == "audio_only_format":
                             val = str(val or "mka").lower().strip()
@@ -1266,6 +1433,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             enable_hedging = bool(data.get("enable_hedging", c.get("enable_hedging", False)))
             enable_resume = bool(data.get("enable_resume", c.get("enable_resume", True)))
             bitrate_mode = str(data.get("bitrate_mode") or c.get("bitrate_mode") or "highest").strip()
+            audio_fallback = bool(data.get("audio_fallback", c.get("audio_fallback", True)))
 
             dl_dir = str(data.get("download_dir") or c.get("download_dir") or DEFAULT_DOWNLOAD_DIR).strip() or DEFAULT_DOWNLOAD_DIR
             default_task_title = str(data.get("task_title") or data.get("series_title") or "").strip()
@@ -1293,6 +1461,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "enable_hedging": enable_hedging,
                     "enable_resume": enable_resume,
                     "bitrate_mode": bitrate_mode,
+                    "audio_fallback": audio_fallback,
                 }
                 enq = QUEUE.enqueue_batch(s_items, batch_opts, task_title=s_name)
                 all_enqueued.extend(enq)
@@ -1509,6 +1678,108 @@ class Handler(http.server.BaseHTTPRequestHandler):
             stars = get_github_stars(force=force)
             self._json({"success": True, "stars": stars})
 
+        elif path == "/api/watcher/status":
+            try:
+                self._json({"success": True, **WATCHER.get_status()})
+            except Exception as e:
+                logger.error("Watcher status failed: %s", e, exc_info=True)
+                self._json({"success": False, "error": str(e)}, 500)
+
+        elif path == "/api/watcher/check-now":
+            try:
+                WATCHER.check_now()
+                self._json({"success": True, "message": "Scan cycle triggered"})
+            except Exception as e:
+                logger.error("Watcher check-now failed: %s", e, exc_info=True)
+                self._json({"success": False, "error": str(e)}, 500)
+
+        elif path == "/api/watcher/check-series":
+            series_id = str(data.get("series_id") or "").strip()
+            if not series_id:
+                self._json({"success": False, "error": "series_id required"}, 400)
+                return
+            try:
+                res = WATCHER.check_series(series_id)
+                self._json(res)
+            except Exception as e:
+                logger.error("Watcher check-series failed: %s", e, exc_info=True)
+                self._json({"success": False, "error": str(e)}, 500)
+
+        elif path == "/api/watcher/monitor":
+            series_id = str(data.get("series_id") or data.get("url") or "").strip()
+            title = str(data.get("title") or "").strip()
+            url = str(data.get("url") or "").strip()
+            poster = str(data.get("poster") or "").strip()
+            mode = str(data.get("mode") or "latest_only").strip()
+            audio_lang = data.get("audio_lang")
+            subs_lang = data.get("subs_lang")
+            video_quality = data.get("video_quality")
+            download_dir = data.get("download_dir")
+            if not series_id:
+                self._json({"success": False, "error": "series_id or url required"}, 400)
+                return
+            try:
+                rec = WATCHER.add_series(
+                    series_id=series_id,
+                    title=title,
+                    url=url,
+                    poster=poster,
+                    mode=mode,
+                    audio_lang=audio_lang,
+                    subs_lang=subs_lang,
+                    video_quality=video_quality,
+                    download_dir=download_dir,
+                )
+                self._json({"success": True, "series": rec})
+            except Exception as e:
+                logger.error("Watcher monitor failed: %s", e, exc_info=True)
+                self._json({"success": False, "error": str(e)}, 500)
+
+        elif path == "/api/watcher/unmonitor":
+            series_id = str(data.get("series_id") or "").strip()
+            if not series_id:
+                self._json({"success": False, "error": "series_id required"}, 400)
+                return
+            try:
+                removed = WATCHER.remove_series(series_id)
+                self._json({"success": removed})
+            except Exception as e:
+                logger.error("Watcher unmonitor failed: %s", e, exc_info=True)
+                self._json({"success": False, "error": str(e)}, 500)
+
+        elif path == "/api/watcher/toggle":
+            series_id = str(data.get("series_id") or "").strip()
+            st = data.get("status")
+            if not series_id:
+                self._json({"success": False, "error": "series_id required"}, 400)
+                return
+            try:
+                new_st = WATCHER.toggle_series(series_id, status=st)
+                self._json({"success": new_st is not None, "status": new_st})
+            except Exception as e:
+                logger.error("Watcher toggle failed: %s", e, exc_info=True)
+                self._json({"success": False, "error": str(e)}, 500)
+
+        elif path == "/api/watcher/settings":
+            try:
+                updated = WATCHER.update_settings(data)
+                self._json({"success": True, "settings": updated})
+            except Exception as e:
+                logger.error("Watcher settings update failed: %s", e, exc_info=True)
+                self._json({"success": False, "error": str(e)}, 500)
+
+        elif path == "/api/watcher/simulate-release":
+            series_id = str(data.get("series_id") or "").strip()
+            if not series_id:
+                self._json({"success": False, "error": "series_id required"}, 400)
+                return
+            try:
+                res = WATCHER.simulate_release(series_id)
+                self._json(res)
+            except Exception as e:
+                logger.error("Watcher simulate-release failed: %s", e, exc_info=True)
+                self._json({"success": False, "error": str(e)}, 500)
+
         elif path.startswith("/api/"):
             self._json({"success": False, "error": f"Endpoint not found: {path}. If you recently updated, please restart web_gui.py."}, 404)
         else:
@@ -1567,6 +1838,10 @@ def start_gui(port=8000, use_browser=False):
 
     server_thread = threading.Thread(target=srv.serve_forever, daemon=True)
     server_thread.start()
+    try:
+        WATCHER.start()
+    except Exception as e:
+        logger.warning("Could not start Series Watcher: %s", e)
 
     url = f"http://127.0.0.1:{port}"
     print(f"crunchyroller running on {url}")

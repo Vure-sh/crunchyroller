@@ -1,6 +1,9 @@
 import json
+import logging
 import time
 from typing import List, Optional, Tuple, Dict, Any
+
+logger = logging.getLogger("crunchyroll.api")
 from urllib.parse import quote, urlparse, urlunparse, urlencode, parse_qs
 
 import requests
@@ -18,19 +21,79 @@ from .types import (
 
 _SUBTITLE_LOCALE_ALIASES = {
     "en": "en-US",
-    "de": "de-DE",
-    "fr": "fr-FR",
-    "es": "es-419",
-    "pt": "pt-BR",
-    "id": "id-ID",
-    "vi": "vi-VN",
-    "th": "th-TH",
+    "eng": "en-US",
     "english": "en-US",
+    "de": "de-DE",
+    "deu": "de-DE",
+    "ger": "de-DE",
+    "german": "de-DE",
+    "deutsch": "de-DE",
+    "fr": "fr-FR",
+    "fra": "fr-FR",
+    "fre": "fr-FR",
+    "french": "fr-FR",
+    "français": "fr-FR",
+    "francais": "fr-FR",
+    "es": "es-419",
+    "spa": "es-419",
+    "spanish": "es-419",
+    "español": "es-419",
+    "espanol": "es-419",
+    "es-es": "es-ES",
+    "es-419": "es-419",
+    "pt": "pt-BR",
+    "por": "pt-BR",
+    "portuguese": "pt-BR",
+    "português": "pt-BR",
+    "portugues": "pt-BR",
+    "pt-br": "pt-BR",
+    "pt-pt": "pt-PT",
+    "it": "it-IT",
+    "ita": "it-IT",
+    "italian": "it-IT",
+    "italiano": "it-IT",
+    "ru": "ru-RU",
+    "rus": "ru-RU",
+    "russian": "ru-RU",
+    "русский": "ru-RU",
+    "ar": "ar-SA",
+    "ara": "ar-SA",
+    "arabic": "ar-SA",
+    "العربية": "ar-SA",
+    "ja": "ja-JP",
+    "jpn": "ja-JP",
+    "japanese": "ja-JP",
+    "日本語": "ja-JP",
+    "hi": "hi-IN",
+    "hin": "hi-IN",
+    "hindi": "hi-IN",
+    "हिंदी": "hi-IN",
+    "id": "id-ID",
+    "ind": "id-ID",
+    "indonesian": "id-ID",
     "bahasa indonesia": "id-ID",
+    "vi": "vi-VN",
+    "vie": "vi-VN",
+    "vietnamese": "vi-VN",
     "tiếng việt": "vi-VN",
     "tieng viet": "vi-VN",
-    "ไทย": "th-TH",
+    "th": "th-TH",
+    "tha": "th-TH",
     "thai": "th-TH",
+    "ไทย": "th-TH",
+    "tr": "tr-TR",
+    "tur": "tr-TR",
+    "turkish": "tr-TR",
+    "türkçe": "tr-TR",
+    "turkce": "tr-TR",
+    "pl": "pl-PL",
+    "pol": "pl-PL",
+    "polish": "pl-PL",
+    "polski": "pl-PL",
+    "ko": "ko-KR",
+    "kor": "ko-KR",
+    "korean": "ko-KR",
+    "한국어": "ko-KR",
 }
 
 def _subtitle_locale(raw_key: object, raw_language: object) -> str:
@@ -44,6 +107,8 @@ def _subtitle_locale(raw_key: object, raw_language: object) -> str:
         return _SUBTITLE_LOCALE_ALIASES.get(language_lower, "")
     if key_lower in _SUBTITLE_LOCALE_ALIASES:
         return _SUBTITLE_LOCALE_ALIASES[key_lower]
+    if language_lower in _SUBTITLE_LOCALE_ALIASES:
+        return _SUBTITLE_LOCALE_ALIASES[language_lower]
     return key
 
 
@@ -180,109 +245,214 @@ def _is_stream_limit_response(response) -> bool:
 
 
 def get_episode(
+
     client: CrunchyrollHttpClient,
+
     content_id: str,
+
     debug: bool = False,
+
     playback_id: Optional[str] = None,
+
     queue: int = 0,
+
 ) -> PlaybackStream:
-    """Grab a stream URL and token from Android TV play service with Web fallback."""
+
+    """Grab a stream URL and token with multi-language subtitle preservation."""
+
     clean_id = str(content_id).strip()
+
     quoted_content_id = quote(clean_id, safe="")
+
     timeout = getattr(client, "DEFAULT_REQUEST_TIMEOUT", 20)
+
     print(
+
         f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [playback] "
+
         f"Request started for content {clean_id} "
+
         f"(timeout={timeout}s)...",
+
         flush=True,
+
     )
 
-    # 1. Prioritize official Crunchyroll Android TV play service
-    android_url = (
-        f"https://cr-play-service.prd.crunchyrollsvc.com/v3/{quoted_content_id}/tv/android_tv/play?queue={queue}"
-    )
-    android_headers = {
-        "User-Agent": "Crunchyroll/ANDROIDTV/3.70.0_22358 (Android 12; en-US; SHIELD Android TV Build/SR1A.220624.014)",
-    }
-    raw_android_token = getattr(client, "android_token", None)
-    if isinstance(raw_android_token, str) and raw_android_token.strip():
-        android_token = raw_android_token.strip()
-    else:
-        android_token = getattr(client, "token", None)
 
-    if android_token:
-        token_str = str(android_token).strip()
-        if token_str:
-            android_headers["Authorization"] = f"Bearer {token_str}"
 
-    started_at = time.monotonic()
-    try:
-        response = client.do_request("GET", android_url, headers=android_headers)
-        if _is_stream_limit_response(response):
-            print("[playback] Stream limit detected (3002) during Android TV request; auto-purging orphaned sessions...", flush=True)
-            purge_orphan_streams(client, all_devices=True)
-            time.sleep(1.0)
-            response = client.do_request("GET", android_url, headers=android_headers)
-        response.raise_for_status()
-        data = response.json()
-        if not isinstance(data, dict):
-            raise RuntimeError("Playback response was not a JSON object")
-        stream = _parse_playback_response(data, debug=debug)
-        if not stream.manifest_url:
-            raise RuntimeError("Playback response contained no manifest URL")
-        elapsed = time.monotonic() - started_at
-        print(
-            f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [playback] "
-            f"Response received for content {clean_id}: "
-            f"HTTP {response.status_code} after {elapsed:.1f}s",
-            flush=True,
-        )
-        return stream
-    except Exception as exc:
-        reason = " ".join(str(exc).split()) if str(exc).strip() else type(exc).__name__
-        print(
-            f"[playback] Android TV playback failed ({reason}); falling back to web endpoint...",
-            flush=True,
-        )
+    # 1. Fetch web endpoint for complete multi-language subtitle tracks (.ass)
 
-    # 2. Fallback to web endpoint
     web_url = f"https://www.crunchyroll.com/playback/v3/{quoted_content_id}/web/chrome/play"
+
     web_started_at = time.monotonic()
+
+    web_stream: Optional[PlaybackStream] = None
+
     try:
+
         response = client.do_request("GET", web_url)
+
         if _is_stream_limit_response(response):
+
             print("[playback] Stream limit detected (3002) during web playback request; auto-purging orphaned sessions...", flush=True)
+
             purge_orphan_streams(client, all_devices=True)
+
             time.sleep(1.0)
+
             response = client.do_request("GET", web_url)
-    except Exception as exc:
-        elapsed = time.monotonic() - web_started_at
-        print(
-            f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [playback] "
-            f"Request failed for content {clean_id} "
-            f"after {elapsed:.1f}s: {type(exc).__name__}: {exc}",
-            flush=True,
-        )
-        raise
 
-    elapsed = time.monotonic() - web_started_at
-    print(
-        f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [playback] "
-        f"Response received for content {clean_id}: "
-        f"HTTP {response.status_code} after {elapsed:.1f}s",
-        flush=True,
-    )
-    response.raise_for_status()
+        response.raise_for_status()
 
-    try:
         data = response.json()
-    except Exception:
-        raise
 
-    if not isinstance(data, dict):
-        raise RuntimeError("Playback response was not a JSON object")
+        if isinstance(data, dict):
 
-    return _parse_playback_response(data, debug=debug)
+            web_stream = _parse_playback_response(data, debug=debug)
+            sub_keys = list(web_stream.subtitles.keys())
+            logger.info(
+                "[playback] Web playback stream obtained for %s: %d subtitles available: %s",
+                clean_id,
+                len(sub_keys),
+                sub_keys,
+            )
+
+            elapsed = time.monotonic() - web_started_at
+
+            print(
+
+                f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [playback] "
+
+                f"Web playback response received for {clean_id}: "
+
+                f"HTTP {response.status_code} after {elapsed:.1f}s ({len(web_stream.subtitles)} subtitles)",
+
+                flush=True,
+
+            )
+
+    except Exception as exc:
+
+        reason = " ".join(str(exc).split()) if str(exc).strip() else type(exc).__name__
+
+        logger.warning(
+            "[playback] Web playback request for %s failed (%s); trying Android TV...",
+            clean_id,
+            reason,
+        )
+        print(f"[playback] Web playback request for {clean_id} failed ({reason}); trying Android TV...", flush=True)
+
+
+
+    # 2. Try Android TV play service (if web failed or returned no usable manifest)
+
+    if not web_stream or not web_stream.manifest_url:
+
+        android_url = (
+
+            f"https://cr-play-service.prd.crunchyrollsvc.com/v3/{quoted_content_id}/tv/android_tv/play?queue={queue}"
+
+        )
+
+        android_headers = {
+
+            "User-Agent": "Crunchyroll/ANDROIDTV/3.70.0_22358 (Android 12; en-US; SHIELD Android TV Build/SR1A.220624.014)",
+
+        }
+
+        raw_android_token = getattr(client, "android_token", None)
+
+        if isinstance(raw_android_token, str) and raw_android_token.strip():
+
+            android_token = raw_android_token.strip()
+
+        else:
+
+            android_token = getattr(client, "token", None)
+
+
+
+        if android_token:
+
+            token_str = str(android_token).strip()
+
+            if token_str:
+
+                android_headers["Authorization"] = f"Bearer {token_str}"
+
+
+
+        started_at = time.monotonic()
+
+        try:
+
+            response = client.do_request("GET", android_url, headers=android_headers)
+
+            if _is_stream_limit_response(response):
+
+                print("[playback] Stream limit detected (3002) during Android TV request; auto-purging orphaned sessions...", flush=True)
+
+                purge_orphan_streams(client, all_devices=True)
+
+                time.sleep(1.0)
+
+                response = client.do_request("GET", android_url, headers=android_headers)
+
+            response.raise_for_status()
+
+            data = response.json()
+
+            if not isinstance(data, dict):
+
+                raise RuntimeError("Playback response was not a JSON object")
+
+            android_stream = _parse_playback_response(data, debug=debug)
+            android_sub_keys = list(android_stream.subtitles.keys())
+            logger.info(
+                "[playback] Android TV playback stream obtained for %s: %d subtitles available: %s",
+                clean_id,
+                len(android_sub_keys),
+                android_sub_keys,
+            )
+
+            if not android_stream.manifest_url:
+
+                raise RuntimeError("Playback response contained no manifest URL")
+
+            elapsed = time.monotonic() - started_at
+
+            print(
+
+                f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [playback] "
+
+                f"Android TV response received for content {clean_id}: "
+
+                f"HTTP {response.status_code} after {elapsed:.1f}s",
+
+                flush=True,
+
+            )
+
+            # If web_stream had subtitles, merge them onto android_stream
+
+            if web_stream and web_stream.subtitles:
+
+                for k, v in web_stream.subtitles.items():
+
+                    android_stream.subtitles.setdefault(k, v)
+
+            return android_stream
+
+        except Exception as exc:
+
+            if not web_stream:
+
+                raise
+
+
+
+    return web_stream
+
 
 
 def _convert_download_to_playback(download_url: str, play_url: str) -> str:
@@ -408,6 +578,12 @@ def get_episode_download(
         merged_subtitles = dict(play_stream.subtitles or {})
         if dl_stream.subtitles:
             merged_subtitles.update(dl_stream.subtitles)
+        logger.info(
+            "[playback] Merged /download subtitles with /play catalog for %s: total %d subtitles: %s",
+            clean_id,
+            len(merged_subtitles),
+            list(merged_subtitles.keys()),
+        )
 
         return PlaybackStream(
             manifest_url=patched_url,
@@ -623,13 +799,16 @@ def get_series(
         f"https://www.crunchyroll.com/content/v2/cms/series/{series_id}"
         f"?preferred_audio_language={audio_locale}&locale={sub_locale}"
     )
-    resp = client.do_request("GET", url)
     series_meta = {}
-    if resp.status_code == 200:
-        data = resp.json()
-        items = data.get("data", [])
-        if items:
-            series_meta = items[0]
+    try:
+        resp = client.do_request("GET", url)
+        if resp.status_code == 200:
+            data = resp.json()
+            items = data.get("data", [])
+            if items:
+                series_meta = items[0]
+    except Exception as e:
+        logger.warning("Could not fetch series object metadata for %s: %s", series_id, e)
 
     seasons = get_seasons(client, series_id, audio_locale, sub_locale)
     all_episodes: List[SeasonEpisode] = []
@@ -695,6 +874,17 @@ def search_series(
     if resp.status_code != 200:
         alt_url = f"https://beta-api.crunchyroll.com/content/v2/discover/search?q={encoded_q}&n={target_limit}&locale={locale}"
         resp = client.do_request("GET", alt_url)
+        if resp.status_code in (401, 403):
+            # Fall back to a fresh guest token for catalog search if user token auth failed
+            try:
+                from .auth import get_guest_token
+                guest_tok = get_guest_token(force_refresh=True)
+                guest_headers = {"Authorization": f"Bearer {guest_tok}"}
+                resp = client.do_request("GET", url, headers=guest_headers)
+                if resp.status_code != 200:
+                    resp = client.do_request("GET", alt_url, headers=guest_headers)
+            except Exception:
+                pass
         if resp.status_code != 200:
             raise RuntimeError(f"Crunchyroll search failed ({resp.status_code}): {resp.text}")
 
@@ -965,3 +1155,240 @@ def get_episode_chapters(
         timeline[-1]["end"] = max(timeline[-1]["end"], float(duration_seconds))
 
     return timeline
+
+
+def get_active_profile_id(client: CrunchyrollHttpClient) -> str:
+    """Extract active profile ID from bearer token JWT payload or /accounts/v1/me fallback."""
+    if client and getattr(client, "token", None):
+        try:
+            parts = client.token.split(".")
+            if len(parts) >= 2:
+                import base64
+                payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
+                payload = json.loads(base64.urlsafe_b64decode(payload_b64.encode("ascii")).decode("utf-8", errors="replace"))
+                pid = payload.get("profile_id")
+                if pid and isinstance(pid, str):
+                    return pid.strip()
+        except Exception:
+            pass
+
+    # Fallback to /accounts/v1/me
+    try:
+        url = "https://www.crunchyroll.com/accounts/v1/me"
+        res = client.do_request("GET", url)
+        if res.status_code == 200:
+            data = res.json()
+            return (data.get("account_id") or "").strip()
+    except Exception:
+        pass
+    return ""
+
+
+def get_active_account_id(client: CrunchyrollHttpClient) -> str:
+    """Extract parent account ID from bearer token JWT payload or /accounts/v1/me fallback."""
+    if client and getattr(client, "token", None):
+        try:
+            parts = client.token.split(".")
+            if len(parts) >= 2:
+                import base64
+                payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
+                payload = json.loads(base64.urlsafe_b64decode(payload_b64.encode("ascii")).decode("utf-8", errors="replace"))
+                acc_id = (
+                    payload.get("account_id")
+                    or payload.get("etp_user_id")
+                    or (payload.get("scopes", {}).get("cr", {}).get("acc_id"))
+                    or payload.get("sub")
+                )
+                if acc_id and isinstance(acc_id, str):
+                    return acc_id.strip()
+        except Exception:
+            pass
+
+    # Fallback to /accounts/v1/me
+    try:
+        url = "https://www.crunchyroll.com/accounts/v1/me"
+        res = client.do_request("GET", url)
+        if res.status_code == 200:
+            data = res.json()
+            return (data.get("account_id") or "").strip()
+    except Exception:
+        pass
+    return ""
+
+
+def get_avatar_url(raw_avatar: str = "", profile_type: str = "") -> str:
+    """Resolve full CDN image URL for Crunchyroll profile avatar."""
+    cand = (raw_avatar or "").strip()
+    if not cand:
+        cand = (profile_type or "").strip()
+    if cand:
+        if not cand.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+            cand = f"{cand}.png"
+        return f"https://static.crunchyroll.com/assets/avatar/170x170/{cand}"
+    return "https://static.crunchyroll.com/assets/avatar/170x170/0001-cr-white-orange.png"
+
+
+def get_user_profiles(client: CrunchyrollHttpClient) -> List[Dict[str, Any]]:
+    """Retrieve all user profiles under the authenticated account."""
+    if not client or (not getattr(client, "token", None) and not getattr(client, "etp_rt", None)):
+        raise RuntimeError("Authentication required to fetch user profiles")
+
+    active_pid = get_active_profile_id(client)
+
+    # 1. Try multiprofile endpoint
+    url = "https://www.crunchyroll.com/accounts/v1/me/multiprofile"
+    try:
+        res = client.do_request("GET", url, skip_rate_limit=True)
+        if res.status_code == 200:
+            data = res.json()
+            raw_profiles = data.get("profiles") or []
+            if raw_profiles:
+                # If active_pid matches one of the profiles, ensure that profile is marked selected
+                has_active_match = any(p.get("profile_id", "").strip() == active_pid for p in raw_profiles if active_pid)
+                saved_pins = {}
+                try:
+                    from .auth import load_config
+                    saved_pins = load_config().get("saved_profile_pins") or {}
+                except Exception:
+                    pass
+                results = []
+                for p in raw_profiles:
+                    pid = p.get("profile_id", "").strip()
+                    if not pid:
+                        continue
+                    is_selected = (pid == active_pid) if has_active_match else bool(p.get("is_selected", False))
+                    p_avatar = p.get("avatar") or ""
+                    p_type = p.get("profile_type") or ""
+                    results.append({
+                        "profile_id": pid,
+                        "name": p.get("profile_name") or p.get("username") or "Profile",
+                        "avatar": p_avatar or p_type,
+                        "avatar_url": get_avatar_url(p_avatar, p_type),
+                        "is_primary": bool(p.get("is_primary", False)),
+                        "is_selected": is_selected,
+                        "is_pin_protected": bool(p.get("is_pin_protected", False)),
+                        "has_saved_pin": bool(pid in saved_pins and saved_pins[pid]),
+                    })
+                return results
+    except Exception:
+        pass
+
+    # 2. Fallback to single-profile /accounts/v1/me
+    try:
+        res = client.do_request("GET", "https://www.crunchyroll.com/accounts/v1/me", skip_rate_limit=True)
+        if res.status_code == 200:
+            data = res.json()
+            acc_id = data.get("account_id")
+            if acc_id:
+                p_avatar = data.get("avatar", "")
+                return [{
+                    "profile_id": acc_id.strip(),
+                    "name": data.get("username") or "Default",
+                    "avatar": p_avatar,
+                    "avatar_url": get_avatar_url(p_avatar),
+                    "is_primary": True,
+                    "is_selected": True,
+                    "is_pin_protected": False,
+                }]
+    except Exception:
+        pass
+
+    return []
+
+
+def get_user_watchlist(
+    client: CrunchyrollHttpClient,
+    profile_id: str = "",
+    locale: str = "en-US",
+    limit: int = 100,
+) -> List[Dict[str, Any]]:
+    """Fetch the authenticated user's saved Watchlist series from Crunchyroll."""
+    target_pid = (profile_id or "").strip()
+    current_pid = get_active_profile_id(client)
+
+    # If caller requested a specific profile that differs from the active one, switch profile
+    if target_pid and target_pid != current_pid and hasattr(client, "switch_profile"):
+        try:
+            client.switch_profile(target_pid)
+        except Exception as e:
+            logger.warning(f"Failed to switch to profile {target_pid}: {e}")
+
+    account_id = get_active_account_id(client)
+    if not account_id:
+        account_id = target_pid or current_pid
+    if not account_id:
+        raise RuntimeError("Unable to determine active Crunchyroll account ID for watchlist")
+
+    safe_limit = max(1, min(200, limit))
+    url = f"https://www.crunchyroll.com/content/v2/discover/{account_id}/watchlist?n={safe_limit}&locale={locale}"
+    res = client.do_request("GET", url, skip_rate_limit=True)
+    if res.status_code != 200:
+        # Fallback to direct watchlist endpoint
+        alt_url = f"https://www.crunchyroll.com/content/v2/{account_id}/watchlist?n={safe_limit}&locale={locale}"
+        res = client.do_request("GET", alt_url, skip_rate_limit=True)
+        if res.status_code != 200:
+            raise RuntimeError(f"Failed to fetch Crunchyroll Watchlist ({res.status_code}): {res.text}")
+
+    data = res.json()
+    raw_items = data.get("data") or data.get("items") or []
+
+    results: List[Dict[str, Any]] = []
+    seen_series = set()
+
+    for item in raw_items:
+        panel = item.get("panel", {})
+        if not panel:
+            panel = item
+
+        ep_meta = panel.get("episode_metadata", {}) or {}
+        series_id = ep_meta.get("series_id") or panel.get("id") or ""
+        if not series_id or series_id in seen_series:
+            continue
+
+        seen_series.add(series_id)
+        title = ep_meta.get("series_title") or panel.get("title") or "Untitled"
+        desc = panel.get("description") or ep_meta.get("description") or ""
+
+        # Extract best resolution poster
+        images = panel.get("images", {}) or {}
+        poster_url = ""
+        for p_key in ("poster_tall", "thumbnail", "poster_wide"):
+            groups = images.get(p_key, [])
+            if groups and isinstance(groups, list):
+                for group in groups:
+                    if isinstance(group, list):
+                        cands = [c for c in group if isinstance(c, dict) and c.get("source")]
+                        if cands:
+                            preferred = [c for c in cands if 200 <= c.get("width", 0) <= 600]
+                            poster_url = preferred[0]["source"] if preferred else cands[-1]["source"]
+                            break
+            if poster_url:
+                break
+
+        item_type = panel.get("type", "series")
+        is_movie = (
+            item_type == "movie"
+            or (ep_meta.get("duration_ms", 0) or 0) > 3600000
+            or "movie" in title.lower()
+            or "movie" in (panel.get("slug_title") or "").lower()
+        )
+        upload_date = ep_meta.get("upload_date") or ep_meta.get("episode_air_date") or ""
+        results.append({
+            "id": series_id,
+            "title": title,
+            "description": desc,
+            "poster_url": poster_url,
+            "url": f"https://www.crunchyroll.com/series/{series_id}",
+            "type": "movie" if is_movie else "series",
+            "is_favorite": bool(item.get("is_favorite", False)),
+            "fully_watched": bool(item.get("fully_watched", False)),
+            "never_watched": bool(item.get("never_watched", False)),
+            "playhead": int(item.get("playhead", 0) or 0),
+            "is_new": bool(item.get("new", False)),
+            "upload_date": upload_date,
+            "duration_ms": int(ep_meta.get("duration_ms", 0) or 0),
+            "next_episode_title": panel.get("title") if item_type == "episode" else "",
+        })
+
+    return results
+

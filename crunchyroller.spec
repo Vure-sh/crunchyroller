@@ -37,7 +37,7 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
-icon_path = os.path.join(base_dir, 'web', 'icon.ico')
+icon_path = os.path.join(base_dir, 'web', 'favicon.ico')
 icon_arg = [icon_path] if os.path.exists(icon_path) else None
 
 exe = EXE(

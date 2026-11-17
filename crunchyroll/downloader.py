@@ -20,6 +20,7 @@ import requests
 logger = logging.getLogger("crunchyroll.downloader")
 
 from .api import (
+    _SUBTITLE_LOCALE_ALIASES,
     delete_stream,
     get_episode,
     get_episode_chapters,
@@ -48,6 +49,7 @@ from .session_pool import ConcurrencyConfig, SessionPool
 from .stream_assembler import StreamAssembler
 from .tools import run_n_m3u8dl_re
 from .types import (
+    AudioUnavailableError,
     DEFAULT_DOWNLOAD_DIR,
     DubVersion,
     EpisodeInfo,
@@ -640,24 +642,49 @@ def download_parts(
 def download_subs(
     url: str,
     pool: Optional[SessionPool] = None,
+    client: Optional[CrunchyrollHttpClient] = None,
     pause_event: Optional[threading.Event] = None,
     cancel_event: Optional[threading.Event] = None,
+    target_dir: Optional[str] = None,
 ) -> str:
-    """grab subs and stash in a temp file, validating payload format"""
+    """grab subs and stash in a temp file, validating payload format with authentication support"""
     session_pool = pool or _get_global_session_pool()
+    headers = {}
+    if client and getattr(client, "token", None):
+        headers["Authorization"] = f"Bearer {client.token}"
     content = session_pool.download_segment(
         url,
+        headers=headers if headers else None,
         pause_event=pause_event,
         cancel_event=cancel_event,
     )
     if not content or content.strip().startswith(b"<?xml") or b"<Error>" in content:
         raise RuntimeError(f"Invalid subtitle response from {session_pool._safe_url(url)}")
     suffix = ".vtt" if b"WEBVTT" in content[:40] else ".ass"
-    tmp_file = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    if target_dir and os.path.exists(target_dir):
+        tmp_file = tempfile.NamedTemporaryFile(dir=target_dir, suffix=suffix, delete=False)
+    else:
+        tmp_file = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
     tmp_path = tmp_file.name
     tmp_file.write(content)
     tmp_file.close()
+    logger.info("Saved subtitle track (%d bytes, format=%s) to: %s", len(content), suffix, tmp_path)
     return tmp_path
+
+
+def _find_master_version(versions: List[DubVersion], default_locale: str = "") -> Optional[DubVersion]:
+    """Find the master/original audio version that hosts the full dialogue subtitle catalog."""
+    if not versions:
+        return None
+    for v in versions:
+        if (getattr(v, "audio_locale", "") or "").lower() == "ja-jp":
+            return v
+    if default_locale:
+        def_clean = default_locale.lower()
+        for v in versions:
+            if (getattr(v, "audio_locale", "") or "").lower() == def_clean:
+                return v
+    return versions[0]
 
 
 def _try_fallback_subtitles(
@@ -666,55 +693,118 @@ def _try_fallback_subtitles(
     locale: str,
     pool: Optional[SessionPool] = None,
     exclude_id: str = "",
+    target_dir: Optional[str] = None,
 ) -> Optional[str]:
     """Attempt to find and download subtitles for locale from candidate dub versions or MPD manifests."""
     candidate_versions = [
         v for v in (getattr(info.episode_metadata, "versions", []) or [])
-        if v.guid and v.guid != exclude_id
+        if v.guid
     ]
     target_clean = locale.strip().lower()
+    is_target_signs = target_clean.endswith("-signs")
+    is_target_cc = target_clean.endswith("-cc")
     base_target = locale_base(target_clean).lower()
-    # Prioritize candidate versions matching requested locale or base locale (e.g. en-US dub for English subtitles/CC)
-    candidate_versions.sort(
-        key=lambda v: 0 if (getattr(v, "audio_locale", "") or "").lower() in {target_clean, base_target} else 1
+    lang_prefix = base_target.split("-")[0]
+
+    master_v = _find_master_version(
+        getattr(info.episode_metadata, "versions", []) or [],
+        getattr(info.episode_metadata, "audio_locale", ""),
+    )
+    master_guid = getattr(master_v, "guid", "")
+    master_locale = (getattr(master_v, "audio_locale", "") or "ja-jp").lower()
+
+    def _cand_prio(v):
+        v_loc = (getattr(v, "audio_locale", "") or "").lower()
+        v_guid = getattr(v, "guid", "")
+        if not is_target_signs and not is_target_cc:
+            if v_guid == master_guid or v_loc == master_locale:
+                return 0
+            if v_loc in {target_clean, base_target}:
+                return 1
+            if v_loc.split("-")[0] == lang_prefix:
+                return 2
+        else:
+            if v_loc in {target_clean, base_target}:
+                return 0
+            if v_loc.split("-")[0] == lang_prefix:
+                return 1
+            if v_guid == master_guid or v_loc == master_locale:
+                return 2
+        if v_guid != exclude_id:
+            return 3
+        return 4
+
+    candidate_versions.sort(key=_cand_prio)
+    logger.info(
+        "Attempting fallback subtitles for '%s' across %d candidate version(s)...",
+        locale,
+        len(candidate_versions),
     )
 
     for version in candidate_versions:
         v_ep = None
         try:
             v_ep = get_episode(client, version.guid, debug=False, playback_id=version.guid, queue=1)
-            # 1. Check v_ep.subtitles
-            target_url = None
-            for s_loc, s_obj in v_ep.subtitles.items():
-                s_clean = s_loc.strip().lower()
-                if (s_clean == target_clean or (not target_clean.endswith("-cc") and s_clean == base_target)) and getattr(s_obj, "url", None):
-                    target_url = s_obj.url
-                    break
-            if target_url:
+            v_loc = (getattr(version, "audio_locale", "") or "").lower()
+            is_v_master = (version.guid == master_guid or v_loc == master_locale)
+            if not is_v_master:
+                v_base = locale_base(v_loc)
+                for k in list(v_ep.subtitles.keys()):
+                    k_c = str(k or "").strip().lower()
+                    if not k_c.endswith("-cc") and not k_c.endswith("-signs"):
+                        if locale_base(k_c) == v_base or k_c.split("-")[0] == v_base.split("-")[0]:
+                            s = v_ep.subtitles[k]
+                            s.is_signs = True
+                            s.language = f"{v_base}-signs"
+                            v_ep.subtitles[f"{v_base}-signs"] = s
+                            del v_ep.subtitles[k]
+            # 1. Check v_ep.subtitles via flexible resolver
+            matched_sub = _find_matching_subtitle(v_ep.subtitles, locale)
+            if matched_sub and getattr(matched_sub, "url", None):
+                logger.info(
+                    "Found matching fallback subtitle in version %s (%s): %s -> %s",
+                    version.guid,
+                    getattr(version, "audio_locale", "unknown"),
+                    locale,
+                    matched_sub.url,
+                )
                 try:
-                    res = download_subs(target_url, pool=pool)
+                    res = download_subs(matched_sub.url, pool=pool, client=client, target_dir=target_dir)
                     if res:
                         return res
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("Fallback subtitle download failed from version %s: %s", version.guid, exc)
+
             # 2. Check v_ep MPD manifest for embedded text/vtt tracks
             if v_ep.manifest_url:
                 try:
                     manifest = parse_manifest(client, v_ep.manifest_url)
-                    manifest_subs = get_manifest_subtitles(manifest)
-                    for m_loc, m_url in manifest_subs.items():
-                        m_clean = m_loc.strip().lower()
-                        if m_clean == target_clean or m_clean == base_target or (base_target.startswith("en") and m_clean.startswith("en")):
-                            res = download_subs(m_url, pool=pool)
-                            if res:
-                                return res
-                except Exception:
-                    pass
-        except Exception:
+                    manifest_subs = get_manifest_subtitles(manifest, manifest_url=v_ep.manifest_url)
+                    matched_url = _find_matching_subtitle(manifest_subs, locale)
+                    if matched_url:
+                        if isinstance(matched_url, str):
+                            m_target = matched_url
+                        else:
+                            m_target = getattr(matched_url, "url", str(matched_url))
+                        logger.info(
+                            "Found matching manifest subtitle in version %s (%s): %s -> %s",
+                            version.guid,
+                            getattr(version, "audio_locale", "unknown"),
+                            locale,
+                            m_target,
+                        )
+                        res = download_subs(m_target, pool=pool, client=client, target_dir=target_dir)
+                        if res:
+                            return res
+                except Exception as exc:
+                    logger.warning("Fallback manifest subtitle parse failed for version %s: %s", version.guid, exc)
+        except Exception as exc:
+            logger.warning("Failed querying candidate version %s for fallback subtitles: %s", version.guid, exc)
             continue
         finally:
             if v_ep and getattr(v_ep, "token", None):
                 delete_stream(client, version.guid, v_ep.token)
+    logger.warning("No fallback subtitles found for '%s' across candidate versions.", locale)
     return None
 
 
@@ -740,6 +830,100 @@ def _unique_locales(values: List[str]) -> List[str]:
 def _locale_map(values: Dict[str, object]) -> Dict[str, object]:
     """Index locale-keyed records case-insensitively."""
     return {key.strip().lower(): value for key, value in values.items() if key.strip()}
+
+
+def _find_matching_subtitle(
+    subtitle_map: Dict[str, Any], requested_locale: str
+) -> Optional[Any]:
+    """Resolve a subtitle track flexibly matching exact locale, aliases, or base languages."""
+    if not subtitle_map or not requested_locale:
+        return None
+    req_clean = requested_locale.strip().lower()
+    if req_clean.endswith("-signs"):
+        req_flavor = "signs"
+        req_base = req_clean[:-6]
+    elif req_clean.endswith("-cc"):
+        req_flavor = "cc"
+        req_base = req_clean[:-3]
+    else:
+        req_flavor = "full"
+        req_base = req_clean
+
+    req_canonical = _SUBTITLE_LOCALE_ALIASES.get(req_base, req_base).lower()
+    req_prefix = req_canonical.split("-")[0]
+
+    def _get_flavor(k: str, sub: Any) -> str:
+        k_l = str(k or "").strip().lower()
+        if k_l.endswith("-signs") or getattr(sub, "is_signs", False):
+            return "signs"
+        if k_l.endswith("-cc") or getattr(sub, "is_cc", False):
+            return "cc"
+        return "full"
+
+    def _get_base(k: str) -> str:
+        k_l = str(k or "").strip().lower()
+        if k_l.endswith("-signs"):
+            return k_l[:-6]
+        if k_l.endswith("-cc"):
+            return k_l[:-3]
+        return k_l
+
+    # 1. Exact match (e.g. "fr-fr", "fr-fr-signs", or "fr-fr-cc")
+    if req_clean in subtitle_map:
+        sub = subtitle_map[req_clean]
+        if _get_flavor(req_clean, sub) == req_flavor:
+            return sub
+
+    # 2. Canonical alias match via _SUBTITLE_LOCALE_ALIASES
+    suffix = f"-{req_flavor}" if req_flavor != "full" else ""
+    alias_clean = f"{req_canonical}{suffix}"
+    if alias_clean in subtitle_map:
+        sub = subtitle_map[alias_clean]
+        if _get_flavor(alias_clean, sub) == req_flavor:
+            return sub
+
+    # 3. Flexible match across alias and language prefixes (STRICTLY same flavor)
+    for key, sub in subtitle_map.items():
+        if _get_flavor(key, sub) != req_flavor:
+            continue
+        k_base = _get_base(key)
+        k_canonical = _SUBTITLE_LOCALE_ALIASES.get(k_base, k_base).lower()
+        k_prefix = k_canonical.split("-")[0]
+
+        if k_base == req_base or k_canonical == req_canonical:
+            return sub
+        if k_prefix == req_prefix:
+            return sub
+
+        sub_lang = str(getattr(sub, "language", "") or "").strip().lower()
+        if sub_lang:
+            s_base = _get_base(sub_lang)
+            s_canonical = _SUBTITLE_LOCALE_ALIASES.get(s_base, s_base).lower()
+            if s_canonical == req_canonical or s_canonical.split("-")[0] == req_prefix:
+                return sub
+
+    # 4. Fallback across CC boundary ONLY between "full" and "cc" (NEVER into or out of "signs")
+    if req_flavor in ("full", "cc"):
+        for key, sub in subtitle_map.items():
+            if _get_flavor(key, sub) not in ("full", "cc"):
+                continue
+            k_base = _get_base(key)
+            k_canonical = _SUBTITLE_LOCALE_ALIASES.get(k_base, k_base).lower()
+            k_prefix = k_canonical.split("-")[0]
+
+            if k_base == req_base or k_canonical == req_canonical:
+                return sub
+            if k_prefix == req_prefix:
+                return sub
+
+            sub_lang = str(getattr(sub, "language", "") or "").strip().lower()
+            if sub_lang:
+                s_base = _get_base(sub_lang)
+                s_canonical = _SUBTITLE_LOCALE_ALIASES.get(s_base, s_base).lower()
+                if s_canonical == req_canonical or s_canonical.split("-")[0] == req_prefix:
+                    return sub
+
+    return None
 
 
 def _keys_for_adaptation_set(
@@ -889,10 +1073,13 @@ def download_episode(
     download_dir: Optional[str] = None,
     resume: bool = True,
     bitrate_mode: Optional[str] = None,
+    audio_fallback: Optional[bool] = None,
 ) -> str:
     """download all streams for an episode and mux to mkv using shared session pooling and resume support"""
     from .auth import load_config
     cfg = load_config()
+    if audio_fallback is None:
+        audio_fallback = bool(cfg.get("audio_fallback", True))
     if not bitrate_mode:
         bitrate_mode = cfg.get("bitrate_mode", "highest")
     if cfg.get("use_n_m3u8dl_re", False):
@@ -912,6 +1099,7 @@ def download_episode(
             pause_event=pause_event,
             cancel_event=cancel_event,
             download_dir=download_dir,
+            audio_fallback=audio_fallback,
         )
 
     audio_all = _is_all_tracks(audio_langs)
@@ -944,6 +1132,11 @@ def download_episode(
     ]
 
     if not versions:
+        if not audio_fallback and missing_audio and not audio_all:
+            msg = f"Requested audio [{", ".join(missing_audio)}] is unavailable for '{info.title}' and audio fallback is disabled."
+            print(f"Skipping episode: {msg}")
+            logger.info("Skipping episode: %s", msg)
+            raise AudioUnavailableError(msg)
         if info.episode_metadata.versions:
             versions.append(info.episode_metadata.versions[0])
         else:
@@ -1132,6 +1325,32 @@ def download_episode(
         playback_cache[first_playback_id] = first_episode
         active_streams[first_playback_id] = first_episode.token
 
+        # Identify the master audio version (providing full dialogue subtitle catalog)
+        master_version = _find_master_version(
+            getattr(info.episode_metadata, "versions", []) or [],
+            getattr(info.episode_metadata, "audio_locale", ""),
+        )
+        master_guid = getattr(master_version, "guid", "") if master_version else ""
+        master_locale = (getattr(master_version, "audio_locale", "") or "ja-jp").lower() if master_version else "ja-jp"
+
+        # Pre-process first_episode.subtitles:
+        # If the primary stream is a Dub version (not the master version),
+        # any native subtitle matching the dub audio locale is a Signs & Songs (forced narrative) track!
+        primary_locale = (getattr(versions[0], "audio_locale", "") or "").lower()
+        is_primary_dub = (first_playback_id != master_guid and primary_locale != master_locale)
+        if is_primary_dub and first_episode.subtitles:
+            primary_base = locale_base(primary_locale)
+            for k in list(first_episode.subtitles.keys()):
+                sub = first_episode.subtitles[k]
+                k_clean = str(k or "").strip().lower()
+                if not k_clean.endswith("-cc") and not k_clean.endswith("-signs"):
+                    if locale_base(k_clean) == primary_base or k_clean.split("-")[0] == primary_base.split("-")[0]:
+                        signs_key = f"{primary_base}-signs"
+                        sub.is_signs = True
+                        sub.language = signs_key
+                        first_episode.subtitles[signs_key] = sub
+                        del first_episode.subtitles[k]
+
         # Pre-fetch candidate streams for other requested audio versions (e.g. ja-JP + en-US)
         # so that CC tracks and dub-specific subtitles are merged before subtitle selection.
         if len(versions) > 1:
@@ -1147,7 +1366,18 @@ def download_episode(
                         )
                         playback_cache[v.guid] = v_ep
                         active_streams[v.guid] = v_ep.token
+                        v_loc = (getattr(v, "audio_locale", "") or "").lower()
+                        is_v_dub = (v.guid != master_guid and v_loc != master_locale)
+                        v_base = locale_base(v_loc)
                         for loc_k, s_obj in v_ep.subtitles.items():
+                            loc_k_clean = str(loc_k or "").strip().lower()
+                            if is_v_dub and not loc_k_clean.endswith("-cc") and not loc_k_clean.endswith("-signs"):
+                                if locale_base(loc_k_clean) == v_base or loc_k_clean.split("-")[0] == v_base.split("-")[0]:
+                                    signs_key = f"{v_base}-signs"
+                                    s_obj.is_signs = True
+                                    s_obj.language = signs_key
+                                    first_episode.subtitles.setdefault(signs_key, s_obj)
+                                    continue
                             first_episode.subtitles.setdefault(loc_k, s_obj)
                     except Exception as exc:
                         logger.debug("Notice: Could not pre-fetch stream for %s: %s", getattr(v, "audio_locale", ""), exc)
@@ -1167,10 +1397,11 @@ def download_episode(
                         missing_cc_bases.add(base)
 
         if subs_all:
-            needs_more_subs = not has_primary_subs and len(first_episode.subtitles) == 0
+            has_master = (first_playback_id == master_guid or primary_locale == master_locale)
+            needs_more_subs = (not has_master) or (len(first_episode.subtitles) <= 1)
         else:
             needs_more_subs = (
-                any(loc.lower() not in subtitle_map for loc in subs_langs)
+                any(not _find_matching_subtitle(subtitle_map, loc) for loc in subs_langs)
                 or bool(missing_cc_bases)
             )
 
@@ -1183,12 +1414,14 @@ def download_episode(
             ]
             requested_bases = {locale_base(loc).lower() for loc in subs_langs} if not subs_all else set()
             def _version_priority(v):
-                v_base = locale_base(getattr(v, "audio_locale", "") or "").lower()
-                if v_base in missing_cc_bases:
+                v_guid = getattr(v, "guid", "")
+                v_loc = (getattr(v, "audio_locale", "") or "").lower()
+                if v_guid == master_guid or v_loc == master_locale:
                     return 0
-                if v_base in requested_bases:
+                v_base = locale_base(v_loc)
+                if v_base in missing_cc_bases:
                     return 1
-                if (getattr(v, "audio_locale", "") or "").lower() == "ja-jp":
+                if v_base in requested_bases:
                     return 2
                 return 3
 
@@ -1215,19 +1448,35 @@ def download_episode(
                     if v_ep.token:
                         delete_stream(client, version.guid, v_ep.token)
 
+                v_loc = (getattr(version, "audio_locale", "") or "").lower()
+                is_v_master = (version.guid == master_guid or v_loc == master_locale)
+                v_base = locale_base(v_loc)
+
                 for locale, subtitle in v_ep.subtitles.items():
-                    first_episode.subtitles.setdefault(locale, subtitle)
+                    loc_clean = str(locale or "").strip().lower()
+                    if is_v_master:
+                        subtitle.is_signs = False
+                        first_episode.subtitles[locale] = subtitle
+                    else:
+                        if not loc_clean.endswith("-cc") and not loc_clean.endswith("-signs"):
+                            if locale_base(loc_clean) == v_base or loc_clean.split("-")[0] == v_base.split("-")[0]:
+                                signs_key = f"{v_base}-signs"
+                                subtitle.is_signs = True
+                                subtitle.language = signs_key
+                                first_episode.subtitles.setdefault(signs_key, subtitle)
+                                continue
+                        first_episode.subtitles.setdefault(locale, subtitle)
+
                 subtitle_map = _locale_map(first_episode.subtitles)
                 if not subs_all:
-                    all_found = all(loc.lower() in subtitle_map for loc in subs_langs)
+                    all_found = all(_find_matching_subtitle(subtitle_map, loc) for loc in subs_langs)
                     all_cc_found = all(f"{b}-cc" in subtitle_map for b in missing_cc_bases)
                     if all_found and all_cc_found:
                         break
-                # ja-JP provides the complete master subtitle catalog
-                if (getattr(version, "audio_locale", "") or "").lower() == "ja-jp" and v_ep.subtitles and not missing_cc_bases:
+                # Master version provides the complete master subtitle catalog
+                if is_v_master and v_ep.subtitles and not missing_cc_bases:
                     break
                 if not subs_all:
-                    v_base = locale_base(getattr(version, "audio_locale", "") or "").lower()
                     if v_idx >= 3 and v_base not in requested_bases and first_episode.subtitles:
                         break
                 elif v_idx >= 2 and first_episode.subtitles:
@@ -1242,20 +1491,26 @@ def download_episode(
             subs_langs = _unique_locales(list(first_episode.subtitles.keys()))
         else:
             subs_langs = _unique_locales(subs_langs)
+            # Auto-include Signs & Songs variant when base locale is requested and available
+            extra_signs = [
+                f"{locale_base(loc)}-signs"
+                for loc in subs_langs
+                if not loc.endswith("-cc") and not loc.endswith("-signs") and f"{locale_base(loc)}-signs".lower() in subtitle_map
+            ]
             # Auto-include CC variant when base locale is requested and available
             # e.g. requesting 'en-US' also pulls 'en-US-cc' if present
             extra_cc = [
                 f"{loc}-cc"
                 for loc in subs_langs
-                if not loc.endswith("-cc") and f"{loc}-cc".lower() in subtitle_map
+                if not loc.endswith("-cc") and not loc.endswith("-signs") and f"{loc}-cc".lower() in subtitle_map
             ]
-            if extra_cc:
-                subs_langs = _unique_locales(subs_langs + extra_cc)
+            if extra_signs or extra_cc:
+                subs_langs = _unique_locales(subs_langs + extra_signs + extra_cc)
 
         available_subtitles = list(subtitle_map)
         missing_subtitles = [
             locale for locale in subs_langs
-            if locale.lower() not in {available.lower() for available in available_subtitles}
+            if not _find_matching_subtitle(subtitle_map, locale)
         ]
         print(
             "Tracks selected: "
@@ -1276,10 +1531,16 @@ def download_episode(
 
         sub_tracks: List[MediaTrack] = []
         for loc in subs_langs:
-            subtitle = subtitle_map.get(loc.lower())
+            subtitle = _find_matching_subtitle(subtitle_map, loc)
             is_cc = getattr(subtitle, "is_cc", False) or loc.lower().endswith("-cc")
+            is_signs = getattr(subtitle, "is_signs", False) or loc.lower().endswith("-signs")
             raw_lang = getattr(subtitle, "language", None) or loc
-            actual_locale = f"{locale_base(raw_lang)}-cc" if is_cc else raw_lang
+            if is_cc:
+                actual_locale = f"{locale_base(raw_lang)}-cc"
+            elif is_signs:
+                actual_locale = f"{locale_base(raw_lang)}-signs"
+            else:
+                actual_locale = raw_lang
             sub_file = None
             if subtitle and subtitle.url:
                 print(f"Downloading subtitles for {track_title(actual_locale)}...")
@@ -1288,8 +1549,10 @@ def download_episode(
                     sub_file = download_subs(
                         subtitle.url,
                         pool=shared_pool,
+                        client=client,
                         pause_event=pause_event,
                         cancel_event=cancel_event,
+                        target_dir=output_dir,
                     )
                 except Exception as exc:
                     print(
@@ -1302,11 +1565,11 @@ def download_episode(
                         exc,
                     )
                     sub_file = _try_fallback_subtitles(
-                        client, info, actual_locale, pool=shared_pool, exclude_id=first_playback_id
+                        client, info, actual_locale, pool=shared_pool, exclude_id=first_playback_id, target_dir=output_dir
                     )
             elif not subtitle or not subtitle.url:
                 sub_file = _try_fallback_subtitles(
-                    client, info, actual_locale, pool=shared_pool, exclude_id=first_playback_id
+                    client, info, actual_locale, pool=shared_pool, exclude_id=first_playback_id, target_dir=output_dir
                 )
 
             if cancel_event and cancel_event.is_set():
@@ -1317,13 +1580,35 @@ def download_episode(
                     MediaTrack(
                         file=sub_file,
                         locale=actual_locale,
-                        is_default=len(sub_tracks) == 0,
+                        is_default=False,
                         is_cc=is_cc,
+                        is_signs=is_signs,
                     )
                 )
             else:
                 print(f"Warning: Subtitle track unavailable for {track_title(actual_locale)}. Continuing download without it.")
                 logger.warning("Subtitle track unavailable for %s. Continuing download without it.", track_title(actual_locale))
+
+        # Ensure default subtitle disposition: dialogue track takes precedence over signs/CC
+        has_dialogue_sub = any(
+            not t.is_cc and not getattr(t, "is_signs", False) and not t.locale.endswith("-signs")
+            for t in sub_tracks
+        )
+        first_assigned = False
+        for t in sub_tracks:
+            t_is_signs = getattr(t, "is_signs", False) or t.locale.endswith("-signs")
+            if has_dialogue_sub:
+                if not t.is_cc and not t_is_signs and not first_assigned:
+                    t.is_default = True
+                    first_assigned = True
+                else:
+                    t.is_default = False
+            else:
+                if not first_assigned:
+                    t.is_default = True
+                    first_assigned = True
+                else:
+                    t.is_default = False
 
         if sub_tracks:
             sub_summary = ", ".join(
@@ -1722,25 +2007,29 @@ def download_season(
             ),
             title=ep.title,
         )
-        download_episode(
-            client,
-            ep.id,
-            info,
-            audio_langs,
-            subs_langs,
-            video_quality,
-            audio_quality,
-            debug=debug,
-            progress_cb=progress_cb,
-            concurrency_config=concurrency_config,
-            force_download=force_download,
-            server_index=server_index,
-            pause_event=pause_event,
-            cancel_event=cancel_event,
-            download_dir=download_dir,
-            resume=resume,
-            bitrate_mode=bitrate_mode,
-        )
+        try:
+            download_episode(
+                client,
+                ep.id,
+                info,
+                audio_langs,
+                subs_langs,
+                video_quality,
+                audio_quality,
+                debug=debug,
+                progress_cb=progress_cb,
+                concurrency_config=concurrency_config,
+                force_download=force_download,
+                server_index=server_index,
+                pause_event=pause_event,
+                cancel_event=cancel_event,
+                download_dir=download_dir,
+                resume=resume,
+                bitrate_mode=bitrate_mode,
+            )
+        except AudioUnavailableError as exc:
+            print(f"Skipping episode: {exc}")
+            continue
         print()
 
 
@@ -1897,6 +2186,7 @@ def _download_episode_n_m3u8dl_re(
     pause_event: Optional[threading.Event] = None,
     cancel_event: Optional[threading.Event] = None,
     download_dir: Optional[str] = None,
+    audio_fallback: bool = True,
 ) -> str:
     """Download an episode using N_m3u8DL-RE and mux to MKV with FFmpeg.
 
@@ -1942,6 +2232,11 @@ def _download_episode_n_m3u8dl_re(
     ]
 
     if not versions:
+        if not audio_fallback and missing_audio and not audio_all:
+            msg = f"Requested audio [{", ".join(missing_audio)}] is unavailable for '{info.title}' and audio fallback is disabled."
+            print(f"Skipping episode: {msg}")
+            logger.info("Skipping episode: %s", msg)
+            raise AudioUnavailableError(msg)
         if info.episode_metadata.versions:
             versions.append(info.episode_metadata.versions[0])
         else:
@@ -2059,6 +2354,32 @@ def _download_episode_n_m3u8dl_re(
         # ------------------------------------------------------------------
         # 4. Subtitle discovery
         # ------------------------------------------------------------------
+        # Identify the master audio version (providing full dialogue subtitle catalog)
+        master_version = _find_master_version(
+            getattr(info.episode_metadata, "versions", []) or [],
+            getattr(info.episode_metadata, "audio_locale", ""),
+        )
+        master_guid = getattr(master_version, "guid", "") if master_version else ""
+        master_locale = (getattr(master_version, "audio_locale", "") or "ja-jp").lower() if master_version else "ja-jp"
+
+        # Pre-process first_episode.subtitles:
+        # If the primary stream is a Dub version (not the master version),
+        # any native subtitle matching the dub audio locale is a Signs & Songs (forced narrative) track!
+        primary_locale = (getattr(versions[0], "audio_locale", "") or "").lower()
+        is_primary_dub = (first_playback_id != master_guid and primary_locale != master_locale)
+        if is_primary_dub and first_episode.subtitles:
+            primary_base = locale_base(primary_locale)
+            for k in list(first_episode.subtitles.keys()):
+                sub = first_episode.subtitles[k]
+                k_clean = str(k or "").strip().lower()
+                if not k_clean.endswith("-cc") and not k_clean.endswith("-signs"):
+                    if locale_base(k_clean) == primary_base or k_clean.split("-")[0] == primary_base.split("-")[0]:
+                        signs_key = f"{primary_base}-signs"
+                        sub.is_signs = True
+                        sub.language = signs_key
+                        first_episode.subtitles[signs_key] = sub
+                        del first_episode.subtitles[k]
+
         # Pre-fetch candidate streams for other requested audio versions (e.g. ja-JP + en-US)
         # so that CC tracks and dub-specific subtitles are merged before subtitle selection.
         if len(versions) > 1:
@@ -2074,7 +2395,18 @@ def _download_episode_n_m3u8dl_re(
                         )
                         playback_cache[v.guid] = v_ep
                         active_streams[v.guid] = v_ep.token
+                        v_loc = (getattr(v, "audio_locale", "") or "").lower()
+                        is_v_dub = (v.guid != master_guid and v_loc != master_locale)
+                        v_base = locale_base(v_loc)
                         for loc_k, s_obj in v_ep.subtitles.items():
+                            loc_k_clean = str(loc_k or "").strip().lower()
+                            if is_v_dub and not loc_k_clean.endswith("-cc") and not loc_k_clean.endswith("-signs"):
+                                if locale_base(loc_k_clean) == v_base or loc_k_clean.split("-")[0] == v_base.split("-")[0]:
+                                    signs_key = f"{v_base}-signs"
+                                    s_obj.is_signs = True
+                                    s_obj.language = signs_key
+                                    first_episode.subtitles.setdefault(signs_key, s_obj)
+                                    continue
                             first_episode.subtitles.setdefault(loc_k, s_obj)
                     except Exception as exc:
                         logger.debug("Notice: Could not pre-fetch stream for %s: %s", getattr(v, "audio_locale", ""), exc)
@@ -2094,10 +2426,11 @@ def _download_episode_n_m3u8dl_re(
                         missing_cc_bases.add(base)
 
         if subs_all:
-            needs_more_subs = not has_primary_subs and len(first_episode.subtitles) == 0
+            has_master = (first_playback_id == master_guid or primary_locale == master_locale)
+            needs_more_subs = (not has_master) or (len(first_episode.subtitles) <= 1)
         else:
             needs_more_subs = (
-                any(loc.lower() not in subtitle_map for loc in subs_langs)
+                any(not _find_matching_subtitle(subtitle_map, loc) for loc in subs_langs)
                 or bool(missing_cc_bases)
             )
 
@@ -2110,12 +2443,14 @@ def _download_episode_n_m3u8dl_re(
             ]
             requested_bases = {locale_base(loc).lower() for loc in subs_langs} if not subs_all else set()
             def _version_priority(v):
-                v_base = locale_base(getattr(v, "audio_locale", "") or "").lower()
-                if v_base in missing_cc_bases:
+                v_guid = getattr(v, "guid", "")
+                v_loc = (getattr(v, "audio_locale", "") or "").lower()
+                if v_guid == master_guid or v_loc == master_locale:
                     return 0
-                if v_base in requested_bases:
+                v_base = locale_base(v_loc)
+                if v_base in missing_cc_bases:
                     return 1
-                if (getattr(v, "audio_locale", "") or "").lower() == "ja-jp":
+                if v_base in requested_bases:
                     return 2
                 return 3
 
@@ -2141,19 +2476,34 @@ def _download_episode_n_m3u8dl_re(
                     if v_ep.token:
                         delete_stream(client, version.guid, v_ep.token)
 
+                v_loc = (getattr(version, "audio_locale", "") or "").lower()
+                is_v_master = (version.guid == master_guid or v_loc == master_locale)
+                v_base = locale_base(v_loc)
+
                 for locale, subtitle in v_ep.subtitles.items():
-                    first_episode.subtitles.setdefault(locale, subtitle)
+                    loc_clean = str(locale or "").strip().lower()
+                    if is_v_master:
+                        subtitle.is_signs = False
+                        first_episode.subtitles[locale] = subtitle
+                    else:
+                        if not loc_clean.endswith("-cc") and not loc_clean.endswith("-signs"):
+                            if locale_base(loc_clean) == v_base or loc_clean.split("-")[0] == v_base.split("-")[0]:
+                                signs_key = f"{v_base}-signs"
+                                subtitle.is_signs = True
+                                subtitle.language = signs_key
+                                first_episode.subtitles.setdefault(signs_key, subtitle)
+                                continue
+                        first_episode.subtitles.setdefault(locale, subtitle)
 
                 subtitle_map = _locale_map(first_episode.subtitles)
                 if not subs_all:
-                    all_found = all(loc.lower() in subtitle_map for loc in subs_langs)
+                    all_found = all(_find_matching_subtitle(subtitle_map, loc) for loc in subs_langs)
                     all_cc_found = all(f"{b}-cc" in subtitle_map for b in missing_cc_bases)
                     if all_found and all_cc_found:
                         break
-                if (getattr(version, "audio_locale", "") or "").lower() == "ja-jp" and v_ep.subtitles and not missing_cc_bases:
+                if is_v_master and v_ep.subtitles and not missing_cc_bases:
                     break
                 if not subs_all:
-                    v_base = locale_base(getattr(version, "audio_locale", "") or "").lower()
                     if v_idx >= 3 and v_base not in requested_bases and first_episode.subtitles:
                         break
                 elif v_idx >= 2 and first_episode.subtitles:
@@ -2168,18 +2518,23 @@ def _download_episode_n_m3u8dl_re(
             subs_langs = _unique_locales(list(first_episode.subtitles.keys()))
         else:
             subs_langs = _unique_locales(subs_langs)
+            extra_signs = [
+                f"{locale_base(loc)}-signs"
+                for loc in subs_langs
+                if not loc.endswith("-cc") and not loc.endswith("-signs") and f"{locale_base(loc)}-signs".lower() in subtitle_map
+            ]
             extra_cc = [
                 f"{loc}-cc"
                 for loc in subs_langs
-                if not loc.endswith("-cc") and f"{loc}-cc".lower() in subtitle_map
+                if not loc.endswith("-cc") and not loc.endswith("-signs") and f"{loc}-cc".lower() in subtitle_map
             ]
-            if extra_cc:
-                subs_langs = _unique_locales(subs_langs + extra_cc)
+            if extra_signs or extra_cc:
+                subs_langs = _unique_locales(subs_langs + extra_signs + extra_cc)
 
         available_subtitles = list(subtitle_map)
         missing_subtitles = [
             locale for locale in subs_langs
-            if locale.lower() not in {a.lower() for a in available_subtitles}
+            if not _find_matching_subtitle(subtitle_map, locale)
         ]
         print(
             "Tracks selected: "
@@ -2203,16 +2558,22 @@ def _download_episode_n_m3u8dl_re(
         # ------------------------------------------------------------------
         sub_tracks: List[MediaTrack] = []
         for loc in subs_langs:
-            subtitle = subtitle_map.get(loc.lower())
+            subtitle = _find_matching_subtitle(subtitle_map, loc)
             is_cc = getattr(subtitle, "is_cc", False) or loc.lower().endswith("-cc")
+            is_signs = getattr(subtitle, "is_signs", False) or loc.lower().endswith("-signs")
             raw_lang = getattr(subtitle, "language", None) or loc
-            actual_locale = f"{locale_base(raw_lang)}-cc" if is_cc else raw_lang
+            if is_cc:
+                actual_locale = f"{locale_base(raw_lang)}-cc"
+            elif is_signs:
+                actual_locale = f"{locale_base(raw_lang)}-signs"
+            else:
+                actual_locale = raw_lang
             sub_file = None
             if subtitle and subtitle.url:
                 print(f"Downloading subtitles for {track_title(actual_locale)}...")
                 logger.info("Downloading subtitles for %s...", track_title(actual_locale))
                 try:
-                    sub_file = download_subs(subtitle.url, pool=shared_pool)
+                    sub_file = download_subs(subtitle.url, pool=shared_pool, client=client, target_dir=output_dir)
                 except Exception as exc:
                     print(
                         f"Warning: Primary subtitle download failed for {track_title(actual_locale)} ({exc}). "
@@ -2224,11 +2585,11 @@ def _download_episode_n_m3u8dl_re(
                         exc,
                     )
                     sub_file = _try_fallback_subtitles(
-                        client, info, actual_locale, pool=shared_pool, exclude_id=first_playback_id
+                        client, info, actual_locale, pool=shared_pool, exclude_id=first_playback_id, target_dir=output_dir
                     )
             elif not subtitle or not subtitle.url:
                 sub_file = _try_fallback_subtitles(
-                    client, info, actual_locale, pool=shared_pool, exclude_id=first_playback_id
+                    client, info, actual_locale, pool=shared_pool, exclude_id=first_playback_id, target_dir=output_dir
                 )
 
             if sub_file:
@@ -2236,13 +2597,35 @@ def _download_episode_n_m3u8dl_re(
                     MediaTrack(
                         file=sub_file,
                         locale=actual_locale,
-                        is_default=len(sub_tracks) == 0,
+                        is_default=False,
                         is_cc=is_cc,
+                        is_signs=is_signs,
                     )
                 )
             else:
                 print(f"Warning: Subtitle track unavailable for {track_title(actual_locale)}. Continuing download without it.")
                 logger.warning("Subtitle track unavailable for %s. Continuing download without it.", track_title(actual_locale))
+
+        # Ensure default subtitle disposition: dialogue track takes precedence over signs/CC
+        has_dialogue_sub = any(
+            not t.is_cc and not getattr(t, "is_signs", False) and not t.locale.endswith("-signs")
+            for t in sub_tracks
+        )
+        first_assigned = False
+        for t in sub_tracks:
+            t_is_signs = getattr(t, "is_signs", False) or t.locale.endswith("-signs")
+            if has_dialogue_sub:
+                if not t.is_cc and not t_is_signs and not first_assigned:
+                    t.is_default = True
+                    first_assigned = True
+                else:
+                    t.is_default = False
+            else:
+                if not first_assigned:
+                    t.is_default = True
+                    first_assigned = True
+                else:
+                    t.is_default = False
 
         if sub_tracks:
             sub_summary = ", ".join(

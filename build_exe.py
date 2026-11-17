@@ -87,6 +87,39 @@ REQUIREMENTS:
    and install it automatically from Microsoft.
 
 ------------------------------------------------------------------------
+WHAT'S NEW IN v3.8.1:
+------------------------------------------------------------------------
+- Audio Language Fallback Toggle (Addresses #22):
+  - Added an 'audio language fallback' setting toggle in GUI Settings (enabled by default) and CLI flag (--audio-fallback / --no-audio-fallback).
+  - Preserves logical fallback to original audio by default when a requested dub is missing.
+  - When toggled off, episodes without the requested dub language are cleanly skipped in the queue instead of falling back to Japanese.
+- Dual-Track Subtitles on Dub Downloads:
+  - Resolved missing dialogue subtitles when downloading foreign audio (e.g. French, German dubs).
+  - Automatically fetches the full dialogue subtitle catalog from the original/master stream
+    while preserving the dub's native Signs & Songs (forced narrative) track.
+  - Automatically sets default disposition for dialogue tracks so subtitles appear by default
+    during speech across VLC, MPV, Plex, and Jellyfin, with cleanly labeled tracks
+    (e.g. 'Français' and 'Français [Signs & Songs]').
+- Subtitle Pipeline Overhaul (Fixes #20):
+  - Prioritized official Web playback endpoint (web/chrome/play) for comprehensive
+    multi-language .ass soft subtitle catalog retrieval, replacing empty/stub
+    Android TV stream responses.
+  - Multi-language alias resolution supporting 2-letter, 3-letter (ISO-639-2), and
+    localized naming (fra, fre, french, deu, ger, german, spa, spanish, etc.).
+  - Bearer authentication injection for protected CDN subtitle segment downloads.
+  - Resolved relative DASH MPD AdaptationSet BaseURL tracks with manifest URLs.
+  - Dub candidate search fallback now inspects primary Japanese streams and preserves
+    dialogue translation tracks.
+- Auth & Session Token Lifecycle Resilience:
+  - Proactively refreshes expired Android TV access tokens before dispatching requests.
+  - Intercepts HTTP 403 Forbidden playback errors alongside HTTP 401, automatically
+    refreshing tokens and retrying requests without failing downloads.
+  - Clean auth state synchronization when logging in with etp_rt or credentials,
+    purging stale credentials to eliminate dead token shadowing.
+  - Resilient catalog search with automatic fallback to guest token if user session
+    has expired.
+
+------------------------------------------------------------------------
 WHAT'S NEW IN v3.8.0:
 ------------------------------------------------------------------------
 - Recently Added Anime Catalog (#18):

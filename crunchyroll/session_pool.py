@@ -719,7 +719,7 @@ class SessionPool:
                                 f"short range: received {len(data)} of {expected} bytes"
                             )
                         range_elapsed = max(time.time() - range_started, 0.001)
-                        logger.info(
+                        logger.debug(
                             "Completed media range %s-%s for %s in %.1fs (%.2f MB/s)",
                             start,
                             end,

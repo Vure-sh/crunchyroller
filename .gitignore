@@ -8,8 +8,7 @@ config.json
 # Binaries & Large Executables
 ffmpeg.exe
 ffmpeg
-bin/*
-!bin/README.md
+bin/
 
 # Build Artifacts & Packaging
 build/
@@ -40,6 +39,7 @@ anime/
 *.raw.mp4
 .cr_partials/
 queue_state.json
+monitored_series.json
 
 # IDE & OS Files
 .vscode/

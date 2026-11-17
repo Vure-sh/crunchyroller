@@ -7,6 +7,14 @@ let ddAudio = null;
 let ddSubs = null;
 let ddBitrate = null;
 let ddAudioFormat = null;
+let watcherState = {
+  enabled: true,
+  is_checking: false,
+  interval_minutes: 60,
+  monitored_count: 0,
+  series: [],
+};
+let monitoredSeriesMap = new Map();
 
 const VIDEO_OPTIONS = [
   { val: 'none', label: 'none (audio & subs only)' },
@@ -114,6 +122,7 @@ class CheckboxDropdown {
     });
 
     document.addEventListener('click', (e) => {
+      if (!document.contains(e.target)) return;
       if (!this.container.contains(e.target)) {
         this.close();
       }
@@ -148,20 +157,23 @@ class CheckboxDropdown {
   }
 
   setValue(val, triggerChange = true) {
-    if (!this.multi) {
-      this.value = val || (this.options[0] ? this.options[0].val : '');
-    } else {
-      this.value = val || 'all';
-    }
+    const nextVal = (!this.multi)
+      ? (val || (this.options[0] ? this.options[0].val : ''))
+      : (val || 'all');
+
+    const changed = (this.value !== nextVal);
+    this.value = nextVal;
     if (this.hiddenInput) this.hiddenInput.value = this.value;
-    this.render();
-    if (triggerChange && this.onChange) {
+
+    this.updateDisplay();
+
+    if (triggerChange && this.onChange && changed) {
       this.onChange(this.value);
     }
   }
 
   selectSingle(val) {
-    this.setValue(val);
+    this.setValue(val, true);
     this.close();
   }
 
@@ -203,64 +215,64 @@ class CheckboxDropdown {
     this.setValue(list.join(','));
   }
 
-  render() {
+  updateDisplay() {
     if (!this.multi) {
       const found = this.options.find(o => o.val.toLowerCase() === (this.value || '').toLowerCase());
-      this.btnText.textContent = found ? found.label : (this.value || 'Select');
-
-      this.menu.innerHTML = '';
-      this.options.forEach(opt => {
-        const isChecked = opt.val.toLowerCase() === (this.value || '').toLowerCase();
-        const row = document.createElement('div');
-        row.className = 'select-opt' + (isChecked ? ' selected' : '');
-        row.setAttribute('role', 'option');
-        row.setAttribute('aria-selected', isChecked ? 'true' : 'false');
-
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.className = 'cb-custom';
-        cb.checked = isChecked;
-        cb.tabIndex = -1;
-
-        const label = document.createElement('span');
-        label.className = 'select-opt-text';
-        label.textContent = opt.label;
-
-        row.append(cb, label);
-        row.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this.selectSingle(opt.val);
+      if (this.btnText) this.btnText.textContent = found ? found.label : (this.value || 'Select');
+    } else {
+      const selected = this.getSelectedList();
+      const isAll = selected.includes('all');
+      if (isAll) {
+        if (this.btnText) this.btnText.textContent = 'All available';
+      } else {
+        const labels = selected.map(code => {
+          const found = this.options.find(o => o.val.toLowerCase() === code.toLowerCase());
+          return found ? found.label : code;
         });
-
-        this.menu.appendChild(row);
-      });
-      return;
+        if (this.btnText) {
+          if (labels.length === 1) {
+            this.btnText.textContent = labels[0];
+          } else if (labels.length === 2) {
+            this.btnText.textContent = `${labels[0]}, ${labels[1]}`;
+          } else {
+            this.btnText.textContent = `${labels[0]}, ${labels[1]} +${labels.length - 2}`;
+          }
+        }
+      }
     }
+
+    if (!this.menu) return;
+    const selected = this.getSelectedList();
+    const isAll = selected.includes('all');
+    this.menu.querySelectorAll('.select-opt').forEach(row => {
+      const optVal = (row.dataset.val || '').toLowerCase();
+      const isChecked = (!this.multi)
+        ? (optVal === (this.value || '').toLowerCase())
+        : (isAll ? (optVal === 'all') : selected.some(c => c.toLowerCase() === optVal));
+
+      row.classList.toggle('selected', isChecked);
+      row.setAttribute('aria-selected', isChecked ? 'true' : 'false');
+      const cb = row.querySelector('.cb-custom');
+      if (cb) cb.checked = isChecked;
+    });
+  }
+
+  render() {
+    if (!this.menu) return;
+    const scrollPos = this.menu.scrollTop;
+    this.menu.innerHTML = '';
 
     const selected = this.getSelectedList();
     const isAll = selected.includes('all');
 
-    if (isAll) {
-      this.btnText.textContent = 'All available';
-    } else {
-      const labels = selected.map(code => {
-        const found = this.options.find(o => o.val.toLowerCase() === code.toLowerCase());
-        return found ? found.label : code;
-      });
-      if (labels.length === 1) {
-        this.btnText.textContent = labels[0];
-      } else if (labels.length === 2) {
-        this.btnText.textContent = `${labels[0]}, ${labels[1]}`;
-      } else {
-        this.btnText.textContent = `${labels[0]}, ${labels[1]} +${labels.length - 2}`;
-      }
-    }
-
-    this.menu.innerHTML = '';
     this.options.forEach(opt => {
-      const isChecked = isAll ? (opt.val === 'all') : selected.some(c => c.toLowerCase() === opt.val.toLowerCase());
+      const isChecked = (!this.multi)
+        ? (opt.val.toLowerCase() === (this.value || '').toLowerCase())
+        : (isAll ? (opt.val === 'all') : selected.some(c => c.toLowerCase() === opt.val.toLowerCase()));
+
       const row = document.createElement('div');
       row.className = 'select-opt' + (isChecked ? ' selected' : '') + (opt.val === 'all' ? ' opt-all' : '');
+      row.dataset.val = opt.val;
       row.setAttribute('role', 'option');
       row.setAttribute('aria-selected', isChecked ? 'true' : 'false');
 
@@ -277,12 +289,20 @@ class CheckboxDropdown {
       row.append(cb, label);
 
       row.addEventListener('click', (e) => {
+        e.preventDefault();
         e.stopPropagation();
-        this.toggleItem(opt.val);
+        if (!this.multi) {
+          this.selectSingle(opt.val);
+        } else {
+          this.toggleItem(opt.val);
+        }
       });
 
       this.menu.appendChild(row);
     });
+
+    this.updateDisplay();
+    this.menu.scrollTop = scrollPos;
   }
 }
 
@@ -326,6 +346,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   ddSubs = new CheckboxDropdown('dd-subs', 'sl', SUBS_OPTIONS, 'en-US', () => saveCfg(), true);
   ddBitrate = new CheckboxDropdown('dd-bitrate', 'bitrate-mode', BITRATE_OPTIONS, 'highest', () => saveCfg(), false);
   ddAudioFormat = new CheckboxDropdown('dd-audio-format', 'audio-only-format', AUDIO_FORMAT_OPTIONS, 'mka', () => saveCfg(), false);
+
 
   const state = await api('/api/state');
   applyState(state);
@@ -419,16 +440,18 @@ function applyState(state) {
 
   if (state.authenticated) {
     badge.classList.add('on');
+    badgeTxt.textContent = 'connected';
     if (state.auth_type === 'android_tv') {
-      badgeTxt.textContent = 'connected (login)';
+      badge.title = 'Connected via Android TV login';
     } else if (state.auth_type === 'token') {
-      badgeTxt.textContent = 'connected (token)';
+      badge.title = 'Connected via session token';
     } else {
-      badgeTxt.textContent = 'connected';
+      badge.title = 'Connected';
     }
   } else {
     badge.classList.remove('on');
     badgeTxt.textContent = 'offline';
+    badge.title = 'Offline';
   }
 
   // update settings
@@ -481,6 +504,11 @@ function applyState(state) {
     const enableLogging = document.getElementById('enable-logging');
     if (enableLogging && state.config.enable_logging !== undefined) {
       enableLogging.checked = Boolean(state.config.enable_logging);
+    }
+
+    const audioFallback = document.getElementById('audio-fallback');
+    if (audioFallback && state.config.audio_fallback !== undefined) {
+      audioFallback.checked = Boolean(state.config.audio_fallback);
     }
 
     if (state.config.workers !== undefined) {
@@ -563,6 +591,10 @@ function applyState(state) {
   // if a download is running, start polling progress
   if (state.download && state.download.status === 'running') startPolling();
   updateProgressPanel(state.download);
+
+  if (state.watcher) {
+    updateWatcherState(state.watcher);
+  }
 }
 
 // manual token save
@@ -576,7 +608,8 @@ async function saveToken() {
   if (res.success) {
     toast('token saved!', 'ok');
     document.getElementById('badge').classList.add('on');
-    document.getElementById('badge-txt').textContent = 'connected (token)';
+    document.getElementById('badge-txt').textContent = 'connected';
+    document.getElementById('badge').title = 'Connected via session token';
     document.getElementById('tok').value = '';
   } else {
     toast(res.error || 'invalid token', 'err');
@@ -617,7 +650,8 @@ async function loginCredentials() {
     if (res.success) {
       toast('signed in successfully!', 'ok');
       document.getElementById('badge').classList.add('on');
-      document.getElementById('badge-txt').textContent = 'connected (login)';
+      document.getElementById('badge-txt').textContent = 'connected';
+      document.getElementById('badge').title = 'Connected via Android TV login';
       document.getElementById('login-pass').value = '';
       setTimeout(() => {
         const panel = document.getElementById('android-login-panel');
@@ -648,6 +682,7 @@ async function saveCfg() {
   const workersVal = parseInt(document.getElementById('workers-slider')?.value || '16', 10);
   const resumeVal = Boolean(document.getElementById('enable-resume')?.checked);
   const loggingVal = Boolean(document.getElementById('enable-logging')?.checked);
+  const audioFallbackVal = Boolean(document.getElementById('audio-fallback')?.checked ?? true);
   const bitrateVal = ddBitrate ? ddBitrate.value : (document.getElementById('bitrate-mode')?.value || 'highest');
   const audioFormatVal = ddAudioFormat ? ddAudioFormat.value : (document.getElementById('audio-only-format')?.value || 'mka');
 
@@ -669,6 +704,7 @@ async function saveCfg() {
     workers: workersVal,
     enable_resume: resumeVal,
     enable_logging: loggingVal,
+    audio_fallback: audioFallbackVal,
     bitrate_mode: bitrateVal,
     audio_only_format: audioFormatVal,
     enable_antiratelimit: enableAntiRateLimit,
@@ -695,6 +731,10 @@ function switchTab(tabName) {
       browseLoaded = true;
       loadBrowseAnimes();
     }
+    if (tabName === 'watchlist' && !watchlistLoaded) {
+      watchlistLoaded = true;
+      loadUserWatchlist();
+    }
   }
 
   document.querySelectorAll('.nav-tab').forEach(tab => {
@@ -715,6 +755,9 @@ function switchTab(tabName) {
     updateAntiRateLimitPreview();
     updatePartialsCacheStatus();
     loadHistory();
+  }
+  if (tabName === 'autodl') {
+    renderAutoDlTab();
   }
 }
 
@@ -1187,7 +1230,7 @@ async function loadHistory() {
 
         const statusIco = document.createElement('span');
         statusIco.className = `ep-ico ep-ico-${item.status === 'completed' ? 'done' : 'err'}`;
-        statusIco.textContent = item.status === 'completed' ? '✓' : (item.status === 'canceled' ? '✕' : '!');
+        statusIco.textContent = item.status === 'completed' ? '✓' : (item.status === 'canceled' ? '✕' : (item.status === 'skipped' ? '↷' : '!'));
 
         const seriesTitle = getHistorySeriesTitle(item);
         const seriesEl = document.createElement('span');
@@ -1421,10 +1464,15 @@ let selectedSearchIds = new Set();
 function updateSearchSelectedCount() {
   const count = selectedSearchIds.size;
   const fetchBtn = document.getElementById('search-fetch-selected-btn');
+  const autodlBtn = document.getElementById('search-autodl-selected-btn');
   const noneBtn = document.getElementById('search-select-none-btn');
   if (fetchBtn) {
     fetchBtn.textContent = `fetch selected (${count})`;
     fetchBtn.style.display = count > 0 ? 'inline-flex' : 'none';
+  }
+  if (autodlBtn) {
+    autodlBtn.textContent = `auto-dl selected (${count})`;
+    autodlBtn.style.display = count > 0 ? 'inline-flex' : 'none';
   }
   if (noneBtn) {
     noneBtn.style.display = count > 0 ? 'inline-flex' : 'none';
@@ -1452,6 +1500,33 @@ async function fetchSelectedSearchAnime() {
   const urls = Array.from(selectedSearchIds).map(id => `https://www.crunchyroll.com/series/${id}`);
   closeSearchResults();
   await fetchUrl(urls, true);
+}
+
+async function monitorSelectedSearchAnime() {
+  const ids = Array.from(selectedSearchIds);
+  if (!ids.length) return;
+  toast(`Enabling auto-download for ${ids.length} show(s)...`, 'info');
+
+  let successCount = 0;
+  for (const sid of ids) {
+    try {
+      const res = await api('/api/watcher/monitor', {
+        series_id: sid,
+        mode: 'latest_only',
+      });
+      if (res && res.success) {
+        monitoredSeriesMap.set(sid, res.series);
+        successCount++;
+      }
+    } catch (_) {}
+  }
+  selectedSearchIds.clear();
+  toggleSelectAllSearchResults(false);
+  updateSearchSelectedCount();
+  toast(`Auto-download enabled for ${successCount} show(s)!`, 'ok');
+  syncAllMonitoredCards();
+  const sRes = await api('/api/watcher/status');
+  if (sRes && sRes.success) updateWatcherState(sRes);
 }
 
 function renderSearchResults(results, query) {
@@ -1510,6 +1585,8 @@ function renderSearchResults(results, query) {
 
     const desc = item.description || '';
 
+    const isMonitored = monitoredSeriesMap.has(item.id);
+
     card.innerHTML = `
       <div class="search-card-cb-wrap">
         <input type="checkbox" class="cb-custom search-select-cb" data-id="${escapeHtml(item.id)}" title="Select anime">
@@ -1522,6 +1599,7 @@ function renderSearchResults(results, query) {
         <div class="res-badges">${badges.join('')}</div>
         ${desc ? `<div class="res-desc" title="${escapeHtml(desc)}">${escapeHtml(desc)}</div>` : ''}
         <div class="res-actions">
+          <button type="button" class="btn-s ${isMonitored ? 'btn-monitor-active' : 'btn-monitor'} search-autodl-btn" data-id="${escapeHtml(item.id)}" data-title="${escapeHtml(item.title)}" data-poster="${escapeHtml(item.poster || '')}" title="${isMonitored ? 'Auto-download active. Click to stop.' : 'Auto-download new episodes when they air'}">${isMonitored ? 'auto-dl ✓' : 'auto-dl'}</button>
           <button type="button" class="btn-s res-btn">fetch series</button>
         </div>
       </div>
@@ -1539,6 +1617,14 @@ function renderSearchResults(results, query) {
           card.classList.remove('selected');
         }
         updateSearchSelectedCount();
+      });
+    }
+
+    const autodlBtn = card.querySelector('.search-autodl-btn');
+    if (autodlBtn) {
+      autodlBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleMonitorSeries(e, item.id, item.title, null, item.poster);
       });
     }
 
@@ -2180,6 +2266,7 @@ async function startDl() {
   const dlDirVal = (document.getElementById('download-dir') || {}).value || '';
   const workersVal = parseInt(document.getElementById('workers-slider')?.value || '16', 10);
   const resumeVal = Boolean(document.getElementById('enable-resume')?.checked);
+  const audioFallbackVal = Boolean(document.getElementById('audio-fallback')?.checked ?? true);
   const bitrateVal = ddBitrate ? ddBitrate.value : (document.getElementById('bitrate-mode')?.value || 'highest');
 
   const res = await api('/api/download', {
@@ -2194,6 +2281,7 @@ async function startDl() {
     download_dir: dlDirVal.trim() || 'anime',
     workers: workersVal,
     enable_resume: resumeVal,
+    audio_fallback: audioFallbackVal,
     bitrate_mode: bitrateVal,
   });
 
@@ -2211,14 +2299,17 @@ function startPolling() {
   if (pollTimer) return;
   pollTimer = setInterval(async () => {
     const state = await api('/api/state');
-    if (state && state.download) {
-      updateProgressPanel(state.download);
-      const isRunning = state.download.status === 'running' || state.download.status === 'paused';
-      const hasQueue = state.download.queue && state.download.queue.length > 0;
-      const hasActiveTasks = state.download.tasks && state.download.tasks.some(t => t.status === 'running' || t.status === 'queued');
-      if (!isRunning && !hasQueue && !hasActiveTasks) {
-        clearInterval(pollTimer);
-        pollTimer = null;
+    if (state) {
+      if (state.watcher) updateWatcherState(state.watcher);
+      if (state.download) {
+        updateProgressPanel(state.download);
+        const isRunning = state.download.status === 'running' || state.download.status === 'paused';
+        const hasQueue = state.download.queue && state.download.queue.length > 0;
+        const hasActiveTasks = state.download.tasks && state.download.tasks.some(t => t.status === 'running' || t.status === 'queued');
+        if (!isRunning && !hasQueue && !hasActiveTasks) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+        }
       }
     }
   }, 800);
@@ -2694,6 +2785,9 @@ function updateEpIcon(epIco, status) {
   } else if (status === 'canceled') {
     epIco.className = 'ep-ico ep-ico-err';
     epIco.textContent = '✕';
+  } else if (status === 'skipped') {
+    epIco.className = 'ep-ico ep-ico-skipped';
+    epIco.textContent = '↷';
   } else if (status === 'failed') {
     epIco.className = 'ep-ico ep-ico-err';
     epIco.textContent = '!';
@@ -2748,10 +2842,10 @@ function updateEpRight(right, ep, epRow) {
       removeFromQueue(ep.id || ep.ep_id, epRow);
     };
     right.appendChild(epRemove);
-  } else if (ep.status === 'canceled') {
+  } else if (ep.status === 'canceled' || ep.status === 'skipped') {
     const statusPill = document.createElement('span');
-    statusPill.className = 'task-ep-status-pill status-canceled';
-    statusPill.textContent = 'canceled';
+    statusPill.className = `task-ep-status-pill status-${ep.status}`;
+    statusPill.textContent = ep.status;
     right.appendChild(statusPill);
   } else if (ep.status === 'failed') {
     const statusPill = document.createElement('span');
@@ -3363,11 +3457,13 @@ function renderCatalogList() {
 
     const audioLocales = (meta.audio_locales || []).map(l => l.split('-')[0].toUpperCase());
     const uniqueAudios = Array.from(new Set(audioLocales)).slice(0, 4).join(', ');
+    const isMonitored = monitoredSeriesMap.has(seriesId);
 
     const badges = [];
     badges.push(`<span class="res-badge ${type === 'Movie' ? 'res-badge-movie' : ''}">${type}</span>`);
     if (year) badges.push(`<span class="res-badge">${year}</span>`);
     if (episodesStr) badges.push(`<span class="res-badge">${episodesStr}</span>`);
+    if (isMonitored) badges.push('<span class="res-badge res-badge-monitored">AUTO-DL</span>');
     if (meta.is_subbed) badges.push('<span class="res-badge res-badge-sub">SUB</span>');
     if (meta.is_dubbed) badges.push('<span class="res-badge res-badge-dub">DUB</span>');
 
@@ -3396,6 +3492,7 @@ function renderCatalogList() {
           <div class="catalog-bottom-row">
             ${uniqueAudios ? `<span class="catalog-langs" title="Audio: ${escapeHtml((meta.audio_locales || []).join(', '))}">audio: ${escapeHtml(uniqueAudios)}</span>` : '<span class="catalog-langs"></span>'}
             <div class="catalog-card-actions">
+              <button type="button" class="btn-s ${isMonitored ? 'btn-monitor-active' : 'btn-monitor'} catalog-autodl-btn" data-id="${escapeHtml(seriesId)}" data-title="${escapeHtml(title)}" data-url="${escapeHtml(url)}" data-poster="${escapeHtml(posterSrc)}" title="${isMonitored ? 'Auto-download active. Click to stop.' : 'Auto-download new episodes when they air'}">${isMonitored ? 'auto-dl ✓' : 'auto-dl'}</button>
               <button type="button" class="btn-s catalog-fetch-btn" data-url="${escapeHtml(url)}" data-title="${escapeHtml(title)}" title="Inspect seasons and episodes on Dashboard">
                 <span>fetch</span>
               </button>
@@ -3415,6 +3512,15 @@ function renderCatalogList() {
   }).join('');
 
   listEl.onclick = (e) => {
+    // 0. Auto-download button
+    const monitorBtn = e.target.closest('.catalog-autodl-btn');
+    if (monitorBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleMonitorSeries(e, monitorBtn.dataset.id, monitorBtn.dataset.title, monitorBtn.dataset.url, monitorBtn.dataset.poster);
+      return;
+    }
+
     // 1. Explicit Download button
     const dlBtn = e.target.closest('.catalog-dl-btn');
     if (dlBtn) {
@@ -3545,6 +3651,40 @@ async function instantDownloadSelectedCatalog() {
   updateCatalogBatchBar();
 }
 
+async function monitorSelectedCatalog() {
+  const ids = Array.from(selectedCatalogIds);
+  if (!ids.length) return;
+  toast(`Enabling auto-download for ${ids.length} catalog show(s)...`, 'info');
+
+  let successCount = 0;
+  for (const sid of ids) {
+    const item = allCatalogItems.find(it => it.id === sid) || {};
+    const seriesId = item.id || (item.linked_resource_key || '').replace(/.*\/series\//, '');
+    const tallList = item.images?.poster_tall?.[0] || [];
+    const wideList = item.images?.poster_wide?.[0] || [];
+    const posterSrc = (tallList[tallList.length - 1]?.source) || (wideList[wideList.length - 1]?.source) || '';
+    try {
+      const res = await api('/api/watcher/monitor', {
+        series_id: seriesId,
+        title: item.title || seriesId,
+        url: `https://www.crunchyroll.com/series/${seriesId}`,
+        poster: posterSrc,
+        mode: 'latest_only',
+      });
+      if (res && res.success) {
+        monitoredSeriesMap.set(seriesId, res.series);
+        successCount++;
+      }
+    } catch (_) {}
+  }
+  selectedCatalogIds.clear();
+  updateCatalogBatchBar();
+  toast(`Auto-download enabled for ${successCount} show(s)!`, 'ok');
+  syncAllMonitoredCards();
+  const sRes = await api('/api/watcher/status');
+  if (sRes && sRes.success) updateWatcherState(sRes);
+}
+
 async function instantDownloadAnimeList(urls, singleTitle = '') {
   if (!urls || !urls.length) return;
 
@@ -3594,6 +3734,7 @@ async function instantDownloadAnimeList(urls, singleTitle = '') {
     const dlDirVal = (document.getElementById('download-dir') || {}).value || '';
     const workersVal = parseInt(document.getElementById('workers-slider')?.value || '16', 10);
     const resumeVal = Boolean(document.getElementById('enable-resume')?.checked);
+    const audioFallbackVal = Boolean(document.getElementById('audio-fallback')?.checked ?? true);
     const bitrateVal = ddBitrate ? ddBitrate.value : (document.getElementById('bitrate-mode')?.value || 'highest');
 
     const dlRes = await api('/api/download', {
@@ -3608,6 +3749,7 @@ async function instantDownloadAnimeList(urls, singleTitle = '') {
       download_dir: dlDirVal.trim() || 'anime',
       workers: workersVal,
       enable_resume: resumeVal,
+      audio_fallback: audioFallbackVal,
       bitrate_mode: bitrateVal,
     });
 
@@ -3626,3 +3768,2094 @@ async function instantDownloadAnimeList(urls, singleTitle = '') {
     toast('Download error: ' + (err.message || err), 'err');
   }
 }
+
+// ==========================================
+// WATCHLIST LOGIC
+// ==========================================
+let watchlistLoaded = false;
+let allWatchlistItems = [];
+let currentWatchlistFilter = '';
+let currentWatchlistSort = 'recent';
+let currentWatchlistFilterMode = 'all';
+let activeProfile = null;
+let cachedUserProfiles = null;
+const sessionProfilePins = {};
+let pendingPinProfile = null;
+const selectedWatchlistIds = new Set();
+
+function toggleWatchlistProfileMenu(e) {
+  if (e) e.stopPropagation();
+  closeWatchlistSortMenu();
+  closeWatchlistFilterMenu();
+  const wrap = document.getElementById('watchlist-profile-wrap');
+  const menu = document.getElementById('watchlist-profile-menu');
+  if (!wrap || !menu) return;
+  const isOpen = wrap.classList.toggle('open');
+  menu.style.display = isOpen ? 'flex' : 'none';
+}
+
+function closeWatchlistProfileMenu() {
+  const wrap = document.getElementById('watchlist-profile-wrap');
+  const menu = document.getElementById('watchlist-profile-menu');
+  if (wrap) wrap.classList.remove('open');
+  if (menu) menu.style.display = 'none';
+}
+
+function toggleWatchlistSortMenu(e) {
+  if (e) e.stopPropagation();
+  closeWatchlistProfileMenu();
+  closeWatchlistFilterMenu();
+  const wrap = document.getElementById('watchlist-sort-wrap');
+  const menu = document.getElementById('watchlist-sort-menu');
+  if (!wrap || !menu) return;
+  const isOpen = wrap.classList.toggle('open');
+  menu.style.display = isOpen ? 'flex' : 'none';
+}
+
+function closeWatchlistSortMenu() {
+  const wrap = document.getElementById('watchlist-sort-wrap');
+  const menu = document.getElementById('watchlist-sort-menu');
+  if (wrap) wrap.classList.remove('open');
+  if (menu) menu.style.display = 'none';
+}
+
+function toggleWatchlistFilterMenu(e) {
+  if (e) e.stopPropagation();
+  closeWatchlistProfileMenu();
+  closeWatchlistSortMenu();
+  const wrap = document.getElementById('watchlist-filter-mode-wrap');
+  const menu = document.getElementById('watchlist-filter-menu');
+  if (!wrap || !menu) return;
+  const isOpen = wrap.classList.toggle('open');
+  menu.style.display = isOpen ? 'flex' : 'none';
+}
+
+function closeWatchlistFilterMenu() {
+  const wrap = document.getElementById('watchlist-filter-mode-wrap');
+  const menu = document.getElementById('watchlist-filter-menu');
+  if (wrap) wrap.classList.remove('open');
+  if (menu) menu.style.display = 'none';
+}
+
+function setWatchlistSort(sortKey) {
+  currentWatchlistSort = sortKey;
+  closeWatchlistSortMenu();
+
+  const labels = {
+    'recent': 'Recent Activity',
+    'alpha-asc': 'Alphabetical (A - Z)',
+    'alpha-desc': 'Alphabetical (Z - A)',
+    'watched-newest': 'Recently Watched',
+    'updated-newest': 'Recently Updated',
+    'added-newest': 'Recently Added'
+  };
+
+  const labelEl = document.getElementById('watchlist-sort-label');
+  const triggerEl = document.getElementById('watchlist-sort-trigger');
+  if (labelEl) labelEl.textContent = labels[sortKey] || 'Sort';
+  if (triggerEl) triggerEl.classList.toggle('is-active', sortKey !== 'recent');
+
+  const menu = document.getElementById('watchlist-sort-menu');
+  if (menu) {
+    menu.querySelectorAll('.watchlist-menu-item').forEach(item => {
+      const active = item.getAttribute('onclick')?.includes(`'${sortKey}'`);
+      item.classList.toggle('active', active);
+      const existingCheck = item.querySelector('.watchlist-check');
+      if (active && !existingCheck) {
+        item.insertAdjacentHTML('beforeend', '<svg class="watchlist-check" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>');
+      } else if (!active && existingCheck) {
+        existingCheck.remove();
+      }
+    });
+  }
+
+  renderWatchlistList();
+}
+
+function setWatchlistFilterMode(modeKey) {
+  currentWatchlistFilterMode = modeKey;
+  closeWatchlistFilterMenu();
+
+  const labels = {
+    'all': 'All',
+    'unwatched': 'Unwatched',
+    'in-progress': 'In Progress',
+    'watched': 'Watched',
+    'favorites': 'Favorites',
+    'monitored': 'Monitored',
+    'series': 'Series',
+    'movies': 'Movies'
+  };
+
+  const labelEl = document.getElementById('watchlist-filter-label');
+  const triggerEl = document.getElementById('watchlist-filter-trigger');
+  if (labelEl) labelEl.textContent = labels[modeKey] || 'Filter';
+  if (triggerEl) triggerEl.classList.toggle('is-active', modeKey !== 'all');
+
+  const menu = document.getElementById('watchlist-filter-menu');
+  if (menu) {
+    menu.querySelectorAll('.watchlist-menu-item').forEach(item => {
+      const active = item.getAttribute('onclick')?.includes(`'${modeKey}'`);
+      item.classList.toggle('active', active);
+      const existingCheck = item.querySelector('.watchlist-check');
+      if (active && !existingCheck) {
+        item.insertAdjacentHTML('beforeend', '<svg class="watchlist-check" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>');
+      } else if (!active && existingCheck) {
+        existingCheck.remove();
+      }
+    });
+  }
+
+  renderWatchlistList();
+}
+
+document.addEventListener('click', (e) => {
+  if (!document.contains(e.target)) return;
+  const wrap = document.getElementById('watchlist-profile-wrap');
+  if (wrap && !wrap.contains(e.target)) {
+    closeWatchlistProfileMenu();
+  }
+  const sWrap = document.getElementById('watchlist-sort-wrap');
+  if (sWrap && !sWrap.contains(e.target)) {
+    closeWatchlistSortMenu();
+  }
+  const fWrap = document.getElementById('watchlist-filter-mode-wrap');
+  if (fWrap && !fWrap.contains(e.target)) {
+    closeWatchlistFilterMenu();
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closeWatchlistProfileMenu();
+    closeWatchlistSortMenu();
+    closeWatchlistFilterMenu();
+    const modal = document.getElementById('profile-pin-modal');
+    if (modal && modal.style.display !== 'none') {
+      closeProfilePinModal();
+    }
+    const wModal = document.getElementById('watcher-modal');
+    if (wModal && wModal.style.display !== 'none') {
+      closeWatcherModal();
+    }
+  }
+});
+
+function openProfilePinModal(profile, errorMsg = '') {
+  pendingPinProfile = profile;
+  const avatarEl = document.getElementById('modal-pin-avatar');
+  const subEl = document.getElementById('modal-pin-subtitle');
+  const inputEl = document.getElementById('profile-pin-input');
+  const rememberCb = document.getElementById('profile-pin-remember');
+  const errEl = document.getElementById('modal-pin-error');
+  const modal = document.getElementById('profile-pin-modal');
+  const btn = document.getElementById('btn-submit-pin');
+
+  if (avatarEl) {
+    avatarEl.src = profile?.avatar_url || 'https://static.crunchyroll.com/assets/avatar/170x170/0001-cr-white-orange.png';
+  }
+  if (subEl) {
+    subEl.textContent = profile?.name ? `Enter PIN for ${profile.name}` : 'Profile is protected';
+  }
+  if (inputEl) {
+    inputEl.value = '';
+  }
+  if (rememberCb) {
+    rememberCb.checked = true;
+  }
+  if (errEl) {
+    if (errorMsg) {
+      errEl.textContent = errorMsg;
+      errEl.style.display = 'block';
+    } else {
+      errEl.textContent = '';
+      errEl.style.display = 'none';
+    }
+  }
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = 'unlock';
+  }
+  if (modal) {
+    modal.style.display = 'flex';
+  }
+  setTimeout(() => {
+    if (inputEl) inputEl.focus();
+  }, 60);
+}
+
+function closeProfilePinModal() {
+  const modal = document.getElementById('profile-pin-modal');
+  if (modal) modal.style.display = 'none';
+  pendingPinProfile = null;
+  const inputEl = document.getElementById('profile-pin-input');
+  if (inputEl) inputEl.value = '';
+}
+
+function handlePinModalBackdropClick(e) {
+  if (e && e.target && e.target.id === 'profile-pin-modal') {
+    closeProfilePinModal();
+  }
+}
+
+async function submitProfilePin(e) {
+  if (e) e.preventDefault();
+  if (!pendingPinProfile) return;
+
+  const inputEl = document.getElementById('profile-pin-input');
+  const rememberCb = document.getElementById('profile-pin-remember');
+  const pin = (inputEl ? inputEl.value : '').trim();
+  const rememberPin = rememberCb ? Boolean(rememberCb.checked) : false;
+  const errEl = document.getElementById('modal-pin-error');
+  const btn = document.getElementById('btn-submit-pin');
+
+  if (!pin) {
+    if (errEl) {
+      errEl.textContent = 'Please enter your profile PIN';
+      errEl.style.display = 'block';
+    }
+    if (inputEl) inputEl.focus();
+    return;
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'verifying...';
+  }
+
+  const targetProfile = pendingPinProfile;
+  const res = await executeProfileSwitch(targetProfile.profile_id, pin, rememberPin);
+
+  if (res && res.success) {
+    sessionProfilePins[targetProfile.profile_id] = pin;
+    closeProfilePinModal();
+  } else {
+    delete sessionProfilePins[targetProfile.profile_id];
+    if (errEl) {
+      errEl.textContent = res?.error || 'Invalid PIN. Try again.';
+      errEl.style.display = 'block';
+    }
+    if (inputEl) {
+      inputEl.select();
+      inputEl.focus();
+    }
+  }
+
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = 'unlock';
+  }
+}
+
+function renderWatchlistProfileSwitcher(profiles) {
+  const wrap = document.getElementById('watchlist-profile-wrap');
+  const triggerAvatar = document.getElementById('watchlist-profile-avatar');
+  const triggerName = document.getElementById('watchlist-profile-name');
+  const menu = document.getElementById('watchlist-profile-menu');
+  if (!wrap || !profiles || !profiles.length) {
+    if (wrap) wrap.style.display = 'none';
+    return;
+  }
+
+  const active = profiles.find(p => p.is_selected) || profiles.find(p => p.is_primary) || profiles[0];
+  activeProfile = active;
+
+  if (triggerAvatar) {
+    triggerAvatar.src = active.avatar_url || 'https://static.crunchyroll.com/assets/avatar/170x170/0001-cr-white-orange.png';
+  }
+  if (triggerName) {
+    triggerName.textContent = active.name || 'Profile';
+  }
+
+  if (menu) {
+    menu.innerHTML = profiles.map(p => `
+      <div class="watchlist-profile-item ${p.profile_id === active.profile_id ? 'active' : ''}" onclick="switchWatchlistProfile('${escapeHtml(p.profile_id)}')">
+        <img class="watchlist-profile-avatar-sm" src="${escapeHtml(p.avatar_url || 'https://static.crunchyroll.com/assets/avatar/170x170/0001-cr-white-orange.png')}" alt="" onerror="this.src='https://static.crunchyroll.com/assets/avatar/170x170/0001-cr-white-orange.png'">
+        <div class="watchlist-profile-meta">
+          <div class="watchlist-profile-meta-top">
+            <span class="watchlist-profile-item-name">${escapeHtml(p.name)}</span>
+            ${p.is_pin_protected ? `<span class="watchlist-profile-lock" title="${p.has_saved_pin ? 'PIN protected (remembered on this device)' : 'PIN protected'}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></span>` : ''}
+          </div>
+          ${p.is_primary ? '<span class="watchlist-profile-tag">Primary</span>' : ''}
+        </div>
+        ${p.profile_id === active.profile_id ? '<svg class="watchlist-profile-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>' : ''}
+      </div>
+    `).join('');
+  }
+
+  wrap.style.display = 'inline-flex';
+}
+
+async function loadUserWatchlist(force = false) {
+  const loadingEl = document.getElementById('watchlist-loading');
+  const errorEl = document.getElementById('watchlist-error');
+  const emptyEl = document.getElementById('watchlist-empty');
+  const unauthEl = document.getElementById('watchlist-unauth');
+  const listEl = document.getElementById('watchlist-list');
+  const filterInput = document.getElementById('watchlist-filter-input');
+
+  try {
+    if (loadingEl) loadingEl.style.display = 'flex';
+    if (errorEl) errorEl.style.display = 'none';
+    if (emptyEl) emptyEl.style.display = 'none';
+    if (unauthEl) unauthEl.style.display = 'none';
+    if (listEl) listEl.innerHTML = '';
+    selectedWatchlistIds.clear();
+    updateWatchlistBatchBar();
+
+    // Fetch watchlist and profiles in parallel for maximum speed
+    const promises = [
+      api('/api/watchlist' + (force ? '?_t=' + Date.now() : ''))
+    ];
+    if (!cachedUserProfiles || force) {
+      promises.push(api('/api/profiles'));
+    }
+
+    const [wRes, pRes] = await Promise.all(promises);
+
+    if (pRes && pRes.success && pRes.profiles) {
+      cachedUserProfiles = pRes.profiles;
+      renderWatchlistProfileSwitcher(pRes.profiles);
+    } else if (cachedUserProfiles) {
+      renderWatchlistProfileSwitcher(cachedUserProfiles);
+    }
+
+    if (!wRes || !wRes.success) {
+      if (wRes && wRes.error && wRes.error.toLowerCase().includes('authentication required')) {
+        if (unauthEl) unauthEl.style.display = 'block';
+        return;
+      }
+      throw new Error(wRes?.error || 'Failed to fetch watchlist');
+    }
+
+    allWatchlistItems = (wRes.items || []).map((item, idx) => ({ ...item, _origIdx: idx }));
+    if (filterInput) filterInput.value = '';
+    currentWatchlistFilter = '';
+    const clearBtn = document.getElementById('watchlist-filter-clear');
+    if (clearBtn) clearBtn.style.display = 'none';
+
+    renderWatchlistList();
+  } catch (err) {
+    console.error('loadUserWatchlist error:', err);
+    if (errorEl) {
+      errorEl.textContent = 'Error: ' + (err.message || err);
+      errorEl.style.display = 'block';
+    }
+    toast('Could not load watchlist', 'err');
+    watchlistLoaded = false;
+  } finally {
+    if (loadingEl) loadingEl.style.display = 'none';
+  }
+}
+
+async function switchWatchlistProfile(profileId) {
+  if (!profileId) return;
+  closeWatchlistProfileMenu();
+
+  if (activeProfile && activeProfile.profile_id === profileId) {
+    return;
+  }
+
+  const target = (cachedUserProfiles || []).find(p => p.profile_id === profileId);
+
+  // If in-memory session has a PIN, try it first
+  if (sessionProfilePins[profileId]) {
+    const res = await executeProfileSwitch(profileId, sessionProfilePins[profileId]);
+    if (res.success) return;
+    // Session PIN was rejected (e.g. changed on Crunchyroll)
+    delete sessionProfilePins[profileId];
+    if (target) {
+      openProfilePinModal(target, 'Invalid PIN. Please enter your new PIN.');
+    }
+    return;
+  }
+
+  // If profile is marked PIN protected but has saved PIN on backend:
+  // attempt switch without pin to let backend test the saved_profile_pins
+  if (target && target.is_pin_protected && target.has_saved_pin) {
+    const res = await executeProfileSwitch(profileId, null);
+    if (res.success) return;
+    // Backend saved pin was invalid or expired: prompt for new pin
+    openProfilePinModal(target, 'Invalid PIN. Please enter your new PIN.');
+    return;
+  }
+
+  // If profile is PIN protected with no saved PIN, open PIN prompt directly
+  if (target && target.is_pin_protected) {
+    openProfilePinModal(target);
+    return;
+  }
+
+  // Standard switch (unprotected profile)
+  const res = await executeProfileSwitch(profileId, null);
+  if (!res.success && res.requires_pin && target) {
+    openProfilePinModal(target, res.error ? 'Invalid PIN. Please enter your new PIN.' : '');
+  }
+}
+
+async function executeProfileSwitch(profileId, pin = null, rememberPin = false) {
+  const loadingEl = document.getElementById('watchlist-loading');
+  try {
+    if (loadingEl) loadingEl.style.display = 'flex';
+    const payload = { profile_id: profileId };
+    if (pin) payload.pin = pin;
+    if (rememberPin) payload.remember_pin = true;
+
+    const res = await api('/api/profiles/switch', payload);
+    if (res && res.success) {
+      toast('Switched profile', 'ok');
+      cachedUserProfiles = null;
+      await loadUserWatchlist(true);
+      return { success: true };
+    } else {
+      const isPinReq = Boolean(res?.requires_pin);
+      if (!isPinReq) {
+        toast('Failed to switch profile: ' + (res?.error || 'Unknown error'), 'err');
+      }
+      return { success: false, requires_pin: isPinReq, error: res?.error || 'Failed to switch profile' };
+    }
+  } catch (err) {
+    console.error('executeProfileSwitch error:', err);
+    toast('Error switching profile', 'err');
+    return { success: false, error: err.message || 'Error switching profile' };
+  } finally {
+    if (loadingEl) loadingEl.style.display = 'none';
+  }
+}
+
+function filterWatchlist(query) {
+  currentWatchlistFilter = (query || '').trim().toLowerCase();
+  const clearBtn = document.getElementById('watchlist-filter-clear');
+  if (clearBtn) clearBtn.style.display = currentWatchlistFilter ? 'inline-block' : 'none';
+  renderWatchlistList();
+}
+
+function clearWatchlistFilter() {
+  const filterInput = document.getElementById('watchlist-filter-input');
+  if (filterInput) {
+    filterInput.value = '';
+    filterInput.focus();
+  }
+  filterWatchlist('');
+}
+
+function renderWatchlistList() {
+  const listEl = document.getElementById('watchlist-list');
+  const emptyEl = document.getElementById('watchlist-empty');
+  if (!listEl) return;
+
+  if (!allWatchlistItems.length) {
+    listEl.innerHTML = '';
+    if (emptyEl) emptyEl.style.display = 'block';
+    return;
+  }
+  if (emptyEl) emptyEl.style.display = 'none';
+
+  // 1. Filter by mode (unwatched, in-progress, watched, favorites, series, movies)
+  let filtered = allWatchlistItems.filter((item, idx) => {
+    if (typeof item._origIdx === 'undefined') item._origIdx = idx;
+
+    if (currentWatchlistFilterMode === 'unwatched') {
+      return Boolean(item.never_watched) || (Number(item.playhead || 0) === 0 && !item.fully_watched);
+    }
+    if (currentWatchlistFilterMode === 'in-progress') {
+      return Number(item.playhead || 0) > 0 && !item.fully_watched;
+    }
+    if (currentWatchlistFilterMode === 'watched') {
+      return Boolean(item.fully_watched);
+    }
+    if (currentWatchlistFilterMode === 'favorites') {
+      return Boolean(item.is_favorite);
+    }
+    if (currentWatchlistFilterMode === 'monitored') {
+      return monitoredSeriesMap.has(item.id);
+    }
+    if (currentWatchlistFilterMode === 'series') {
+      return item.type !== 'movie';
+    }
+    if (currentWatchlistFilterMode === 'movies') {
+      return item.type === 'movie';
+    }
+    return true; // 'all'
+  });
+
+  // 2. Filter by search input query
+  if (currentWatchlistFilter) {
+    filtered = filtered.filter(item => {
+      const title = (item.title || '').toLowerCase();
+      const desc = (item.description || '').toLowerCase();
+      return title.includes(currentWatchlistFilter) || desc.includes(currentWatchlistFilter);
+    });
+  }
+
+  // 3. Handle empty state
+  if (!filtered.length) {
+    if (currentWatchlistFilter) {
+      listEl.innerHTML = `<div class="catalog-empty">No anime in watchlist matching "${escapeHtml(currentWatchlistFilter)}"</div>`;
+    } else {
+      const modeLabels = {
+        'unwatched': 'unwatched',
+        'in-progress': 'in-progress',
+        'watched': 'watched',
+        'favorites': 'favorite',
+        'monitored': 'monitored for auto-download',
+        'series': 'series',
+        'movies': 'movie'
+      };
+      const label = modeLabels[currentWatchlistFilterMode] || currentWatchlistFilterMode;
+      listEl.innerHTML = `
+        <div class="catalog-empty">
+          <p>No ${escapeHtml(label)} items found in your watchlist.</p>
+          <button type="button" class="btn-s" style="margin-top:10px;" onclick="setWatchlistFilterMode('all')">Show all items</button>
+        </div>
+      `;
+    }
+    return;
+  }
+
+  // 4. Sort items
+  const sorted = [...filtered].sort((a, b) => {
+    switch (currentWatchlistSort) {
+      case 'alpha-asc':
+        return (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' });
+      case 'alpha-desc':
+        return (b.title || '').localeCompare(a.title || '', undefined, { sensitivity: 'base' });
+      case 'watched-newest': {
+        const scoreA = a.fully_watched ? 2 : (a.playhead > 0 ? 1 : 0);
+        const scoreB = b.fully_watched ? 2 : (b.playhead > 0 ? 1 : 0);
+        if (scoreA !== scoreB) return scoreB - scoreA;
+        if ((b.playhead || 0) !== (a.playhead || 0)) return (b.playhead || 0) - (a.playhead || 0);
+        return (a._origIdx || 0) - (b._origIdx || 0);
+      }
+      case 'updated-newest': {
+        const dateA = a.upload_date ? new Date(a.upload_date).getTime() : 0;
+        const dateB = b.upload_date ? new Date(b.upload_date).getTime() : 0;
+        if (dateA !== dateB) return dateB - dateA;
+        return (a._origIdx || 0) - (b._origIdx || 0);
+      }
+      case 'added-newest':
+      case 'recent':
+      default:
+        return (a._origIdx || 0) - (b._origIdx || 0);
+    }
+  });
+
+  listEl.innerHTML = sorted.map((item, idx) => {
+    const id = item.id || `item-${idx + 1}`;
+    const title = item.title || 'Untitled';
+    const desc = item.description || '';
+    const posterSrc = item.poster_url || '';
+    const url = item.url || `https://www.crunchyroll.com/series/${id}`;
+    const isSelected = selectedWatchlistIds.has(id);
+    const isFav = Boolean(item.is_favorite);
+    const isWatched = Boolean(item.fully_watched);
+    const isProgress = !isWatched && Number(item.playhead || 0) > 0;
+    const isUnwatched = Boolean(item.never_watched) || (!isWatched && Number(item.playhead || 0) === 0);
+    const isMovie = item.type === 'movie';
+    const isMonitored = monitoredSeriesMap.has(id);
+
+    let pct = 0;
+    if (isWatched) {
+      pct = 100;
+    } else if (isProgress && item.duration_ms) {
+      const durSec = item.duration_ms / 1000;
+      const curSec = item.playhead > 36000 ? item.playhead / 1000 : item.playhead;
+      pct = Math.min(100, Math.max(5, Math.round((curSec / durSec) * 100)));
+    }
+
+    const badges = [];
+    badges.push('<span class="res-badge">WATCHLIST</span>');
+    if (isMovie) {
+      badges.push('<span class="res-badge">MOVIE</span>');
+    }
+    if (isMonitored) {
+      badges.push('<span class="res-badge res-badge-monitored">AUTO-DL</span>');
+    }
+    if (isFav) {
+      badges.push('<span class="res-badge res-badge-sub">FAVORITE</span>');
+    }
+    if (isWatched) {
+      badges.push('<span class="res-badge res-badge-watched">WATCHED</span>');
+    } else if (isProgress) {
+      badges.push('<span class="res-badge res-badge-progress">IN PROGRESS</span>');
+    } else if (isUnwatched) {
+      badges.push('<span class="res-badge res-badge-unwatched">UNWATCHED</span>');
+    }
+    if (item.is_new) {
+      badges.push('<span class="res-badge" style="background:rgba(255,255,255,0.12);color:var(--white);border:1px solid rgba(255,255,255,0.3);">NEW</span>');
+    }
+
+    return `
+      <div class="catalog-card ${isSelected ? 'selected' : ''}" data-id="${escapeHtml(id)}" data-url="${escapeHtml(url)}" tabindex="0">
+        <div class="catalog-poster-box">
+          ${posterSrc
+            ? `<img class="catalog-poster" src="${escapeHtml(posterSrc)}" alt="${escapeHtml(title)}" loading="lazy" onerror="this.style.opacity='0.2'">`
+            : `<div class="catalog-poster catalog-poster-empty"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div>`
+          }
+          ${pct > 0 ? `<div class="catalog-poster-progress-track"><div class="catalog-poster-progress-fill" style="width: ${pct}%"></div></div>` : ''}
+        </div>
+        <div class="catalog-content">
+          <div class="catalog-title-row">
+            <h3 class="catalog-title" title="${escapeHtml(title)}">${escapeHtml(title)}</h3>
+            <div class="catalog-selected-badge">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            </div>
+          </div>
+          <div class="catalog-badges">
+            ${badges.join('')}
+          </div>
+          <p class="catalog-desc" title="${escapeHtml(desc)}">${escapeHtml(desc)}</p>
+          <div class="catalog-footer">
+            <span class="catalog-meta-info" title="${escapeHtml(id)}">${escapeHtml(id)}</span>
+            <div class="catalog-card-actions">
+              <button type="button" class="btn-s ${isMonitored ? 'btn-monitor-active' : 'btn-monitor'}" onclick="toggleMonitorSeries(event, '${escapeHtml(id)}')" title="${isMonitored ? 'Auto-download active. Click to stop.' : 'Auto-download new episodes when they air'}">${isMonitored ? 'auto-dl ✓' : 'auto-dl'}</button>
+              <button type="button" class="btn-s catalog-fetch-btn" data-url="${escapeHtml(url)}" title="Fetch this anime into dashboard">fetch</button>
+              <button type="button" class="btn-s btn-pri catalog-fetch-btn catalog-dl-now-btn" data-url="${escapeHtml(url)}" title="Directly enqueue full series">download</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Attach card click handlers for selection
+  listEl.querySelectorAll('.catalog-card').forEach(card => {
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.catalog-card-actions')) return;
+      const id = card.dataset.id;
+      if (!id) return;
+      if (selectedWatchlistIds.has(id)) {
+        selectedWatchlistIds.delete(id);
+        card.classList.remove('selected');
+      } else {
+        selectedWatchlistIds.add(id);
+        card.classList.add('selected');
+      }
+      updateWatchlistBatchBar();
+    });
+  });
+
+  // Attach fetch & download button listeners
+  listEl.querySelectorAll('.catalog-fetch-btn:not(.catalog-dl-now-btn)').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const url = btn.dataset.url;
+      if (!url) return;
+      switchTab('dashboard');
+      await fetchUrl(url, true);
+    });
+  });
+
+  listEl.querySelectorAll('.catalog-dl-now-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const url = btn.dataset.url;
+      if (!url) return;
+      await instantDownloadAnimeList([url]);
+    });
+  });
+
+  updateWatchlistBatchBar();
+}
+
+function toggleSelectAllWatchlist() {
+  const visibleCards = document.querySelectorAll('#watchlist-list .catalog-card');
+  if (!visibleCards.length) return;
+
+  const allVisibleSelected = Array.from(visibleCards).every(card => selectedWatchlistIds.has(card.dataset.id));
+  const newSelection = !allVisibleSelected;
+
+  visibleCards.forEach(card => {
+    const id = card.dataset.id;
+    if (newSelection) {
+      selectedWatchlistIds.add(id);
+    } else {
+      selectedWatchlistIds.delete(id);
+    }
+    card.classList.toggle('selected', newSelection);
+  });
+
+  updateWatchlistBatchBar();
+}
+
+function selectAllWatchlist(select) {
+  if (!select) {
+    selectedWatchlistIds.clear();
+    document.querySelectorAll('#watchlist-list .catalog-card').forEach(card => {
+      card.classList.remove('selected');
+    });
+    updateWatchlistBatchBar();
+  } else {
+    toggleSelectAllWatchlist();
+  }
+}
+
+function updateWatchlistBatchBar() {
+  const count = selectedWatchlistIds.size;
+  const batchBar = document.getElementById('watchlist-batch-bar');
+  const countEl = document.getElementById('watchlist-selected-count');
+  const selectAllBtn = document.getElementById('watchlist-select-all-btn');
+
+  if (batchBar && countEl) {
+    if (count > 0) {
+      countEl.textContent = `${count} ${count === 1 ? 'anime' : 'animes'} selected`;
+      batchBar.style.display = 'flex';
+    } else {
+      batchBar.style.display = 'none';
+    }
+  }
+
+  if (selectAllBtn) {
+    const visibleCards = document.querySelectorAll('#watchlist-list .catalog-card');
+    const allSelected = visibleCards.length > 0 && Array.from(visibleCards).every(c => selectedWatchlistIds.has(c.dataset.id));
+    const span = selectAllBtn.querySelector('span');
+    if (span) span.textContent = allSelected ? 'deselect all' : 'select all';
+  }
+}
+
+function getSelectedWatchlistUrls() {
+  const urls = [];
+  selectedWatchlistIds.forEach(id => {
+    urls.push(`https://www.crunchyroll.com/series/${id}`);
+  });
+  return urls;
+}
+
+async function fetchSelectedWatchlist() {
+  const urls = getSelectedWatchlistUrls();
+  if (!urls.length) {
+    toast('No animes selected', 'err');
+    return;
+  }
+  switchTab('dashboard');
+  await fetchUrl(urls, true);
+  selectedWatchlistIds.clear();
+  updateWatchlistBatchBar();
+}
+
+async function instantDownloadSelectedWatchlist() {
+  const urls = getSelectedWatchlistUrls();
+  if (!urls.length) {
+    toast('No animes selected', 'err');
+    return;
+  }
+  await instantDownloadAnimeList(urls);
+  selectedWatchlistIds.clear();
+  updateWatchlistBatchBar();
+}
+
+async function monitorSelectedWatchlist() {
+  if (!selectedWatchlistIds.size) return;
+
+  const ids = Array.from(selectedWatchlistIds);
+  toast(`Enabling auto-download for ${ids.length} show(s)...`, 'info');
+
+  let successCount = 0;
+  for (const sid of ids) {
+    const item = allWatchlistItems.find(it => it.id === sid) || {};
+    try {
+      const res = await api('/api/watcher/monitor', {
+        series_id: sid,
+        title: item.title || sid,
+        url: item.url || `https://www.crunchyroll.com/series/${sid}`,
+        poster: item.poster_url || '',
+        mode: 'latest_only',
+      });
+      if (res && res.success) {
+        monitoredSeriesMap.set(sid, res.series);
+        successCount++;
+      }
+    } catch (_) {}
+  }
+
+  selectedWatchlistIds.clear();
+  updateWatchlistBatchBar();
+  toast(`Auto-download enabled for ${successCount} show(s)!`, 'ok');
+  renderWatchlistList();
+
+  const sRes = await api('/api/watcher/status');
+  if (sRes && sRes.success) updateWatcherState(sRes);
+}
+
+function formatTimeAgo(isoStr) {
+  if (!isoStr) return '';
+  try {
+    const diffSec = Math.round((Date.now() - new Date(isoStr).getTime()) / 1000);
+    if (diffSec < 60) return 'just now';
+    const mins = Math.floor(diffSec / 60);
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  } catch (_) {
+    return '';
+  }
+}
+
+function updateWatcherState(wState) {
+  if (!wState) return;
+  watcherState = { ...watcherState, ...wState };
+  monitoredSeriesMap = new Map((wState.series || []).map(s => [s.id, s]));
+
+  const strip = document.getElementById('watcher-strip');
+  const dot = document.getElementById('watcher-dot');
+  const statusText = document.getElementById('watcher-status-text');
+  const metaText = document.getElementById('watcher-last-check');
+
+  if (strip && dot && statusText && metaText) {
+    if (wState.enabled) {
+      dot.className = 'watcher-pulse-dot' + (wState.is_checking ? ' scanning' : '');
+      dot.title = wState.is_checking ? 'Scanning anime...' : 'Auto-downloader active';
+      statusText.textContent = wState.is_checking
+        ? 'Auto-Downloader: Scanning...'
+        : 'Auto-Downloader: Active';
+      const count = wState.monitored_count || 0;
+      const timeStr = formatTimeAgo(wState.last_check_time);
+      metaText.textContent = `Monitoring ${count} show${count === 1 ? '' : 's'}${timeStr ? ' • Checked ' + timeStr : ''}`;
+    } else {
+      dot.className = 'watcher-pulse-dot disabled';
+      dot.title = 'Auto-downloader disabled';
+      statusText.textContent = 'Auto-Downloader: Paused';
+      metaText.textContent = 'Auto-downloader paused';
+    }
+  }
+
+  // Update master toggle button and interval select
+  updateWatcherMasterButton();
+  const intervalSelect = document.getElementById('watcher-interval');
+  if (intervalSelect && wState.interval_minutes !== undefined && document.activeElement !== intervalSelect) {
+    const intStr = String(wState.interval_minutes);
+    if (intervalSelect.value !== intStr) {
+      intervalSelect.value = intStr;
+    }
+  }
+
+  // Handle unread notifications
+  if (Array.isArray(wState.unread_notifications) && wState.unread_notifications.length) {
+    wState.unread_notifications.forEach(n => {
+      toast(`Auto-Downloader: Detected new episode for ${n.series_title} (${n.last_episode})! Added to queue.`, 'ok');
+    });
+  }
+
+  // If modal is open, refresh series list
+  const modal = document.getElementById('watcher-modal');
+  if (modal && modal.style.display !== 'none') {
+    renderWatcherModalSeries();
+  }
+
+  // Synchronize badges and cards across all tabs
+  syncAllMonitoredCards();
+}
+
+async function triggerWatcherCheckNow() {
+  const btn = document.getElementById('btn-watcher-check-now');
+  if (btn) {
+    btn.disabled = true;
+    btn.classList.add('loading');
+  }
+  toast('Checking monitored anime for new episodes...', 'info');
+  try {
+    const res = await api('/api/watcher/check-now', {});
+    if (res && res.success) {
+      toast('Scan started! Check queue/logs for updates.', 'ok');
+    } else {
+      toast(res?.error || 'Failed to start scan', 'err');
+    }
+  } catch (err) {
+    toast('Error checking episodes: ' + err.message, 'err');
+  } finally {
+    setTimeout(() => {
+      if (btn) {
+        btn.disabled = false;
+        btn.classList.remove('loading');
+      }
+    }, 1500);
+  }
+}
+
+// ==========================================
+// Auto-DL Mode Popover (Individual Series Mode Picker)
+// ==========================================
+
+let activePopoverSeries = null;
+
+function openAutoDlModePopover(anchorEl, seriesData) {
+  let popover = document.getElementById('autodl-mode-popover');
+  if (!popover) {
+    popover = document.createElement('div');
+    popover.id = 'autodl-mode-popover';
+    popover.className = 'autodl-mode-popover';
+    document.body.appendChild(popover);
+  }
+
+  // If already open for this same anchor, close it
+  if (popover.style.display !== 'none' && activePopoverSeries && activePopoverSeries.id === seriesData.id) {
+    hideAutoDlModePopover();
+    return;
+  }
+
+  const sid = seriesData.id;
+  const isMon = monitoredSeriesMap.has(sid);
+  const monItem = monitoredSeriesMap.get(sid) || {};
+  const curMode = monItem.mode || 'latest_only';
+  const title = seriesData.title || monItem.title || sid;
+  const url = seriesData.url || monItem.url || `https://www.crunchyroll.com/series/${sid}`;
+  const poster = seriesData.poster || monItem.poster || '';
+
+  activePopoverSeries = {
+    id: sid,
+    title: title,
+    url: url,
+    poster: poster,
+    isMonitored: isMon,
+    curMode: curMode,
+  };
+
+  if (!isMon) {
+    popover.innerHTML = `
+      <div class="autodl-popover-header">
+        <div class="autodl-popover-title">Add to Auto-Downloader</div>
+        <div class="autodl-popover-subtitle" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
+      </div>
+      <div class="autodl-popover-options">
+        <button type="button" class="autodl-popover-option" onclick="handlePopoverSelectMode('latest_only')">
+          <div class="autodl-popover-opt-body">
+            <div class="autodl-popover-opt-title">Future Only</div>
+            <div class="autodl-popover-opt-desc">Only downloads new weekly episodes as they air</div>
+          </div>
+        </button>
+        <button type="button" class="autodl-popover-option" onclick="handlePopoverSelectMode('all_missing')">
+          <div class="autodl-popover-opt-body">
+            <div class="autodl-popover-opt-title">All Missing</div>
+            <div class="autodl-popover-opt-desc">Downloads entire backlog + new episodes</div>
+          </div>
+        </button>
+      </div>
+    `;
+  } else {
+    popover.innerHTML = `
+      <div class="autodl-popover-header">
+        <div class="autodl-popover-title">Auto-Download Settings</div>
+        <div class="autodl-popover-subtitle" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
+      </div>
+      <div class="autodl-popover-options">
+        <button type="button" class="autodl-popover-option ${curMode === 'latest_only' ? 'active' : ''}" onclick="handlePopoverSelectMode('latest_only')">
+          <div class="autodl-popover-opt-body">
+            <div class="autodl-popover-opt-title">Future Only</div>
+            <div class="autodl-popover-opt-desc">Only downloads new weekly episodes</div>
+          </div>
+        </button>
+        <button type="button" class="autodl-popover-option ${curMode === 'all_missing' ? 'active' : ''}" onclick="handlePopoverSelectMode('all_missing')">
+          <div class="autodl-popover-opt-body">
+            <div class="autodl-popover-opt-title">All Missing</div>
+            <div class="autodl-popover-opt-desc">Downloads entire backlog + new episodes</div>
+          </div>
+        </button>
+      </div>
+      <div class="autodl-popover-divider"></div>
+      <div class="autodl-popover-footer">
+        <button type="button" class="autodl-popover-stop-btn" onclick="handlePopoverStop()">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          Stop Auto-Download
+        </button>
+      </div>
+    `;
+  }
+
+  popover.style.display = 'flex';
+  const rect = anchorEl.getBoundingClientRect();
+  const popWidth = 260;
+  const popHeight = popover.offsetHeight || 180;
+
+  let left = rect.left;
+  if (left + popWidth > window.innerWidth - 12) {
+    left = Math.max(12, window.innerWidth - popWidth - 12);
+  }
+
+  let top = rect.bottom + 6;
+  if (top + popHeight > window.innerHeight - 10) {
+    top = Math.max(10, rect.top - popHeight - 6);
+  }
+
+  popover.style.left = `${Math.round(left)}px`;
+  popover.style.top = `${Math.round(top)}px`;
+}
+
+function hideAutoDlModePopover() {
+  const popover = document.getElementById('autodl-mode-popover');
+  if (popover) {
+    popover.style.display = 'none';
+  }
+  activePopoverSeries = null;
+}
+
+async function handlePopoverSelectMode(mode) {
+  if (!activePopoverSeries) return;
+  const series = { ...activePopoverSeries };
+  hideAutoDlModePopover();
+
+  if (series.isMonitored) {
+    await changeAutoDlSeriesMode(series.id, mode);
+  } else {
+    await toggleMonitorSeries(null, series.id, series.title, series.url, series.poster, mode);
+  }
+}
+
+async function handlePopoverStop() {
+  if (!activePopoverSeries) return;
+  const sid = activePopoverSeries.id;
+  hideAutoDlModePopover();
+  await removeMonitoredSeries(sid);
+}
+
+document.addEventListener('click', (e) => {
+  if (!document.contains(e.target)) return;
+  const popover = document.getElementById('autodl-mode-popover');
+  if (popover && popover.style.display !== 'none') {
+    if (!popover.contains(e.target) && !e.target.closest('.btn-monitor, .btn-monitor-active, .catalog-autodl-btn, .search-autodl-btn, #url-autodl-btn')) {
+      hideAutoDlModePopover();
+    }
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    hideAutoDlModePopover();
+  }
+});
+
+window.addEventListener('resize', hideAutoDlModePopover);
+
+async function toggleMonitorSeries(e, seriesId, customTitle, customUrl, customPoster, customMode) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  if (!seriesId) return;
+
+  const isMonitored = monitoredSeriesMap.has(seriesId);
+
+  // If no custom mode specified and triggered by user click, open the mode popover
+  const anchor = e ? (e.currentTarget || e.target) : null;
+  if (!customMode && anchor && anchor.getBoundingClientRect) {
+    const wItem = allWatchlistItems.find(it => it.id === seriesId) || {};
+    const cItem = allCatalogItems.find(it => it.id === seriesId) || {};
+    const title = customTitle || wItem.title || cItem.title || seriesId;
+    const url = customUrl || wItem.url || (cItem.id ? `https://www.crunchyroll.com/series/${cItem.id}` : `https://www.crunchyroll.com/series/${seriesId}`);
+    const poster = customPoster || wItem.poster_url || '';
+
+    openAutoDlModePopover(anchor, {
+      id: seriesId,
+      title: title,
+      url: url,
+      poster: poster,
+      isMonitored: isMonitored,
+    });
+    return;
+  }
+
+  if (isMonitored && customMode === 'unmonitor') {
+    try {
+      const res = await api('/api/watcher/unmonitor', { series_id: seriesId });
+      if (res && res.success) {
+        monitoredSeriesMap.delete(seriesId);
+        toast('Stopped auto-downloading for series');
+        syncAllMonitoredCards();
+        const sRes = await api('/api/watcher/status');
+        if (sRes && sRes.success) updateWatcherState(sRes);
+      } else {
+        toast(res?.error || 'Failed to remove series', 'err');
+      }
+    } catch (err) {
+      toast('Error removing series: ' + err.message, 'err');
+    }
+  } else {
+    // Find anime details across watchlist, catalog, or custom parameters
+    const wItem = allWatchlistItems.find(it => it.id === seriesId) || {};
+    const cItem = allCatalogItems.find(it => it.id === seriesId) || {};
+    const title = customTitle || wItem.title || cItem.title || seriesId;
+    const url = customUrl || wItem.url || (cItem.id ? `https://www.crunchyroll.com/series/${cItem.id}` : `https://www.crunchyroll.com/series/${seriesId}`);
+    const poster = customPoster || wItem.poster_url || '';
+    const mode = customMode || 'latest_only';
+
+    try {
+      const res = await api('/api/watcher/monitor', {
+        series_id: seriesId,
+        title: title,
+        url: url,
+        poster: poster,
+        mode: mode,
+      });
+      if (res && res.success) {
+        monitoredSeriesMap.set(seriesId, res.series);
+        const modeLabel = mode === 'all_missing' ? 'All Missing (Backlog + Future)' : 'Future Releases Only';
+        toast(`Auto-download enabled for "${title}"! (${modeLabel})`, 'ok');
+        syncAllMonitoredCards();
+        if (mode === 'all_missing') {
+          checkSingleMonitoredSeries(seriesId);
+        }
+        const sRes = await api('/api/watcher/status');
+        if (sRes && sRes.success) updateWatcherState(sRes);
+      } else {
+        toast(res?.error || 'Failed to monitor series', 'err');
+      }
+    } catch (err) {
+      toast('Error monitoring series: ' + err.message, 'err');
+    }
+  }
+}
+
+function openWatcherModal() {
+  const modal = document.getElementById('watcher-modal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  renderWatcherModalSeries();
+}
+
+function closeWatcherModal() {
+  const modal = document.getElementById('watcher-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+function handleWatcherModalBackdropClick(e) {
+  if (e && e.target && e.target.id === 'watcher-modal') {
+    closeWatcherModal();
+  }
+}
+
+function renderWatcherModalSeries() {
+  const listEl = document.getElementById('watcher-series-list');
+  const emptyEl = document.getElementById('watcher-empty-list');
+  if (!listEl) return;
+
+  const seriesList = watcherState.series || [];
+  if (!seriesList.length) {
+    listEl.innerHTML = '';
+    if (emptyEl) emptyEl.style.display = 'block';
+    return;
+  }
+  if (emptyEl) emptyEl.style.display = 'none';
+
+  const existingRows = listEl.querySelectorAll('.watcher-series-row');
+  const existingIds = Array.from(existingRows).map(r => r.dataset.id).filter(Boolean);
+  const newIds = seriesList.map(s => s.id);
+
+  const hasStructureChanged = (existingIds.length !== newIds.length) ||
+    existingIds.some((id, idx) => id !== newIds[idx]);
+
+  if (!hasStructureChanged) {
+    existingRows.forEach(row => {
+      const sid = row.dataset.id;
+      if (!sid) return;
+      const s = seriesList.find(item => item.id === sid);
+      if (!s) return;
+
+      const modeBadge = row.querySelector('.res-badge-monitored');
+      if (modeBadge) {
+        modeBadge.textContent = s.mode === 'all_missing' ? 'ALL MISSING' : 'LATEST ONLY';
+      }
+      const lastEp = s.last_episode_name ? ` • Last: ${escapeHtml(s.last_episode_name)}` : '';
+      const lastCheck = s.last_checked ? ` • Checked ${formatTimeAgo(s.last_checked)}` : '';
+      const subSpan = row.querySelector('.watcher-series-sub span:last-child');
+      if (subSpan) {
+        subSpan.textContent = `${lastCheck}${lastEp}`;
+      }
+      const modeSel = row.querySelector('.autodl-card-mode-select');
+      if (modeSel && document.activeElement !== modeSel) {
+        const targetVal = s.mode === 'all_missing' ? 'all_missing' : 'latest_only';
+        if (modeSel.value !== targetVal) modeSel.value = targetVal;
+      }
+    });
+    return;
+  }
+
+  if (listEl.contains(document.activeElement) && document.activeElement.tagName === 'SELECT') {
+    return;
+  }
+
+  listEl.innerHTML = seriesList.map(s => {
+    const sid = s.id || '';
+    const title = s.title || sid;
+    const poster = s.poster || '';
+    const mode = s.mode === 'all_missing' ? 'ALL MISSING' : 'LATEST ONLY';
+    const lastEp = s.last_episode_name ? ` • Last: ${escapeHtml(s.last_episode_name)}` : '';
+    const lastCheck = s.last_checked ? ` • Checked ${formatTimeAgo(s.last_checked)}` : '';
+
+    return `
+      <div class="watcher-series-row" data-id="${escapeHtml(sid)}">
+        <div class="watcher-series-info">
+          ${poster
+            ? `<img class="watcher-series-poster" src="${escapeHtml(poster)}" alt="" onerror="this.style.opacity='0.2'">`
+            : `<div class="watcher-series-poster" style="display:flex;align-items:center;justify-content:center;background:#1a1a1a;color:#555;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></div>`
+          }
+          <div class="watcher-series-meta">
+            <span class="watcher-series-title" title="${escapeHtml(title)}">${escapeHtml(title)}</span>
+            <div class="watcher-series-sub">
+              <span class="res-badge res-badge-monitored" style="font-size:0.6rem;padding:1px 5px;">${mode}</span>
+              <span>${lastCheck}${lastEp}</span>
+            </div>
+          </div>
+        </div>
+        <div class="watcher-series-actions">
+          <select class="autodl-card-mode-select" onchange="changeAutoDlSeriesMode('${escapeHtml(sid)}', this.value)" title="Monitoring Mode">
+            <option value="latest_only" ${s.mode !== 'all_missing' ? 'selected' : ''}>Future Only</option>
+            <option value="all_missing" ${s.mode === 'all_missing' ? 'selected' : ''}>All Missing</option>
+          </select>
+          <button type="button" class="btn-s" onclick="checkSingleMonitoredSeries('${escapeHtml(sid)}')" title="Check this anime for new episodes now">check</button>
+          <button type="button" class="btn-s" onclick="removeMonitoredSeries('${escapeHtml(sid)}')" title="Stop monitoring this anime" style="color:#ff6666;">stop</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function checkSingleMonitoredSeries(sid) {
+  if (!sid) return;
+  toast('Checking for new episodes...', 'info');
+  try {
+    const res = await api('/api/watcher/check-series', { series_id: sid });
+    if (res && res.success) {
+      if (res.new_episodes > 0) {
+        toast(`Found & queued ${res.new_episodes} new episode(s)!`, 'ok');
+      } else {
+        toast('Already up to date — no new episodes.', 'ok');
+      }
+      const sRes = await api('/api/watcher/status');
+      if (sRes && sRes.success) updateWatcherState(sRes);
+    } else {
+      toast(res?.error || 'Failed to check series', 'err');
+    }
+  } catch (err) {
+    toast('Error checking series: ' + err.message, 'err');
+  }
+}
+
+async function simulateWatcherRelease(sid) {
+  if (!sid) return;
+  toast('Simulating new episode drop (state rollback)...', 'info');
+  try {
+    const res = await api('/api/watcher/simulate-release', { series_id: sid });
+    if (res && res.success) {
+      if (res.new_episodes > 0) {
+        toast(`Simulated drop detected! Queued ${res.new_episodes} episode(s) to download queue.`, 'ok');
+      } else {
+        toast('Simulated check completed (no episodes found).', 'info');
+      }
+      const sRes = await api('/api/watcher/status');
+      if (sRes && sRes.success) updateWatcherState(sRes);
+    } else {
+      toast(res?.error || 'Failed to simulate release', 'err');
+    }
+  } catch (err) {
+    toast('Simulation error: ' + err.message, 'err');
+  }
+}
+
+async function removeMonitoredSeries(sid) {
+  if (!sid) return;
+  try {
+    const res = await api('/api/watcher/unmonitor', { series_id: sid });
+    if (res && res.success) {
+      monitoredSeriesMap.delete(sid);
+      toast('Stopped monitoring series');
+      syncAllMonitoredCards();
+      const sRes = await api('/api/watcher/status');
+      if (sRes && sRes.success) updateWatcherState(sRes);
+    } else {
+      toast(res?.error || 'Failed to stop monitoring', 'err');
+    }
+  } catch (err) {
+    toast('Error removing series: ' + err.message, 'err');
+  }
+}
+
+function updateWatcherMasterButton() {
+  const btn = document.getElementById('btn-autodl-master-pause');
+  const txt = document.getElementById('btn-autodl-master-text');
+  if (!btn || !txt) return;
+  const isEnabled = watcherState.enabled !== false;
+  const pauseIcon = btn.querySelector('.autodl-pause-icon');
+  const resumeIcon = btn.querySelector('.autodl-resume-icon');
+
+  if (isEnabled) {
+    btn.classList.remove('paused');
+    txt.textContent = 'pause';
+    btn.title = 'Pause auto-downloader background checking';
+    if (pauseIcon) pauseIcon.style.display = 'inline-block';
+    if (resumeIcon) resumeIcon.style.display = 'none';
+  } else {
+    btn.classList.add('paused');
+    txt.textContent = 'resume';
+    btn.title = 'Resume auto-downloader background checking';
+    if (pauseIcon) pauseIcon.style.display = 'none';
+    if (resumeIcon) resumeIcon.style.display = 'inline-block';
+  }
+}
+
+async function toggleWatcherMaster() {
+  const newEnabled = !(watcherState.enabled !== false);
+  const intervalVal = document.getElementById('watcher-interval')?.value || String(watcherState.interval_minutes || 60);
+  try {
+    const res = await api('/api/watcher/settings', {
+      enabled: newEnabled,
+      interval_minutes: parseFloat(intervalVal) || 60,
+    });
+    if (res && res.success) {
+      watcherState = { ...watcherState, ...(res.settings || {}) };
+      toast(newEnabled ? 'Auto-downloader resumed' : 'Auto-downloader paused', 'ok');
+      updateWatcherMasterButton();
+      syncAllMonitoredCards();
+    }
+  } catch (err) {
+    toast('Failed to toggle auto-downloader: ' + err.message, 'err');
+  }
+}
+
+async function saveWatcherSettings() {
+  const enabled = watcherState.enabled !== false;
+  const intervalVal = document.getElementById('watcher-interval')?.value || String(watcherState.interval_minutes || 60);
+
+  try {
+    const res = await api('/api/watcher/settings', {
+      enabled: enabled,
+      interval_minutes: parseFloat(intervalVal) || 60,
+    });
+    if (res && res.success) {
+      toast('Auto-downloader interval saved', 'ok');
+      watcherState = { ...watcherState, ...(res.settings || {}) };
+      updateWatcherMasterButton();
+      syncAllMonitoredCards();
+    }
+  } catch (err) {
+    toast('Failed to save watcher settings: ' + err.message, 'err');
+  }
+}
+
+// ==========================================
+// AUTO-DOWNLOADER (WATCHER) DEDICATED TAB & SYNC
+// ==========================================
+
+let autoDlFilterQuery = '';
+let autoDlFilterMode = 'all';
+
+function syncAllMonitoredCards() {
+  const count = monitoredSeriesMap.size;
+  const navBadge = document.getElementById('nav-autodl-badge');
+  if (navBadge) {
+    navBadge.textContent = count;
+    navBadge.style.display = count > 0 ? 'inline-flex' : 'none';
+  }
+
+  // Sync Watchlist cards
+  document.querySelectorAll('#watchlist-list .catalog-card').forEach(card => {
+    const id = card.dataset.id;
+    if (!id) return;
+    const isMon = monitoredSeriesMap.has(id);
+    const mItem = monitoredSeriesMap.get(id);
+    const modeDesc = mItem && mItem.mode === 'all_missing' ? 'All Missing' : 'Future Only';
+    const btn = card.querySelector('.btn-monitor, .btn-monitor-active');
+    if (btn) {
+      btn.className = `btn-s ${isMon ? 'btn-monitor-active' : 'btn-monitor'}`;
+      btn.textContent = isMon ? 'auto-dl ✓' : 'auto-dl';
+      btn.title = isMon ? `Auto-download active (${modeDesc}). Click to change mode or stop.` : 'Add to auto-downloader';
+    }
+    const badgesEl = card.querySelector('.catalog-badges');
+    if (badgesEl) {
+      let monBadge = badgesEl.querySelector('.res-badge-monitored');
+      if (isMon && !monBadge) {
+        const span = document.createElement('span');
+        span.className = 'res-badge res-badge-monitored';
+        span.textContent = mItem && mItem.mode === 'all_missing' ? 'AUTO-DL (ALL)' : 'AUTO-DL';
+        badgesEl.appendChild(span);
+      } else if (isMon && monBadge) {
+        monBadge.textContent = mItem && mItem.mode === 'all_missing' ? 'AUTO-DL (ALL)' : 'AUTO-DL';
+      } else if (!isMon && monBadge) {
+        monBadge.remove();
+      }
+    }
+  });
+
+  // Sync Catalog cards
+  document.querySelectorAll('#catalog-list .catalog-card').forEach(card => {
+    const id = card.dataset.id;
+    if (!id) return;
+    const seriesId = (card.dataset.url || '').replace(/.*\/series\//, '') || id;
+    const isMon = monitoredSeriesMap.has(id) || monitoredSeriesMap.has(seriesId);
+    const mItem = monitoredSeriesMap.get(id) || monitoredSeriesMap.get(seriesId);
+    const modeDesc = mItem && mItem.mode === 'all_missing' ? 'All Missing' : 'Future Only';
+    const btn = card.querySelector('.catalog-autodl-btn');
+    if (btn) {
+      btn.className = `btn-s ${isMon ? 'btn-monitor-active' : 'btn-monitor'} catalog-autodl-btn`;
+      btn.textContent = isMon ? 'auto-dl ✓' : 'auto-dl';
+      btn.title = isMon ? `Auto-download active (${modeDesc}). Click to change mode or stop.` : 'Add to auto-downloader';
+    }
+    const badgesEl = card.querySelector('.res-badges');
+    if (badgesEl) {
+      let monBadge = badgesEl.querySelector('.res-badge-monitored');
+      if (isMon && !monBadge) {
+        const span = document.createElement('span');
+        span.className = 'res-badge res-badge-monitored';
+        span.textContent = mItem && mItem.mode === 'all_missing' ? 'AUTO-DL (ALL)' : 'AUTO-DL';
+        badgesEl.appendChild(span);
+      } else if (isMon && monBadge) {
+        monBadge.textContent = mItem && mItem.mode === 'all_missing' ? 'AUTO-DL (ALL)' : 'AUTO-DL';
+      } else if (!isMon && monBadge) {
+        monBadge.remove();
+      }
+    }
+  });
+
+  // Sync Search cards
+  document.querySelectorAll('#search-results-list .search-result-card').forEach(card => {
+    const cb = card.querySelector('.search-select-cb');
+    const id = cb ? cb.dataset.id : null;
+    if (!id) return;
+    const isMon = monitoredSeriesMap.has(id);
+    const mItem = monitoredSeriesMap.get(id);
+    const modeDesc = mItem && mItem.mode === 'all_missing' ? 'All Missing' : 'Future Only';
+    const btn = card.querySelector('.search-autodl-btn');
+    if (btn) {
+      btn.className = `btn-s ${isMon ? 'btn-monitor-active' : 'btn-monitor'} search-autodl-btn`;
+      btn.textContent = isMon ? 'auto-dl ✓' : 'auto-dl';
+      btn.title = isMon ? `Auto-download active (${modeDesc}). Click to change mode or stop.` : 'Add to auto-downloader';
+    }
+  });
+
+  // Synchronize Auto-DL tab cards in place without destroying DOM
+  const autodlTab = document.getElementById('tab-autodl');
+  if (autodlTab && autodlTab.style.display !== 'none') {
+    const gridEl = document.getElementById('autodl-series-grid');
+    if (gridEl) {
+      const existingCards = gridEl.querySelectorAll('.autodl-card-item');
+      const existingIds = Array.from(existingCards).map(c => c.dataset.id).filter(Boolean);
+      const allSeries = Array.from(monitoredSeriesMap.values());
+
+      let filtered = allSeries;
+      if (autoDlFilterMode === 'active') {
+        filtered = filtered.filter(s => (s.status || 'active') === 'active');
+      } else if (autoDlFilterMode === 'paused') {
+        filtered = filtered.filter(s => s.status === 'paused');
+      } else if (autoDlFilterMode === 'latest_only') {
+        filtered = filtered.filter(s => (s.mode || 'latest_only') === 'latest_only');
+      } else if (autoDlFilterMode === 'all_missing') {
+        filtered = filtered.filter(s => s.mode === 'all_missing');
+      }
+
+      const filteredIds = filtered.map(s => s.id);
+      const hasStructureChanged = (existingIds.length !== filteredIds.length) ||
+        existingIds.some((id, idx) => id !== filteredIds[idx]);
+
+      if (hasStructureChanged) {
+        const activeTag = document.activeElement ? document.activeElement.tagName : '';
+        const isInteracting = gridEl.contains(document.activeElement) && (activeTag === 'SELECT' || activeTag === 'INPUT');
+        if (!isInteracting) {
+          renderAutoDlTab();
+        }
+      } else {
+        existingCards.forEach(card => {
+          const sid = card.dataset.id;
+          if (!sid) return;
+          const s = monitoredSeriesMap.get(sid);
+          if (!s) return;
+
+          const isAllMissing = s.mode === 'all_missing';
+          const pillWrap = card.querySelector('.autodl-pill-select-wrap');
+          if (pillWrap) {
+            pillWrap.classList.toggle('pill-all', isAllMissing);
+            pillWrap.classList.toggle('pill-future', !isAllMissing);
+          }
+
+          const modeSel = card.querySelector('.autodl-card-mode-select');
+          if (modeSel && document.activeElement !== modeSel) {
+            const targetVal = isAllMissing ? 'all_missing' : 'latest_only';
+            if (modeSel.value !== targetVal) modeSel.value = targetVal;
+          }
+
+          const isPaused = s.status === 'paused';
+          card.classList.toggle('paused', isPaused);
+
+          const headerLine = card.querySelector('.autodl-card-header-line');
+          if (headerLine) {
+            let pausedBadge = headerLine.querySelector('.res-badge-paused');
+            if (isPaused && !pausedBadge) {
+              const span = document.createElement('span');
+              span.className = 'res-badge res-badge-paused';
+              span.style.cssText = 'font-size:0.58rem;padding:1px 5px;flex-shrink:0;';
+              span.textContent = 'PAUSED';
+              headerLine.appendChild(span);
+            } else if (!isPaused && pausedBadge) {
+              pausedBadge.remove();
+            }
+          }
+
+          const pauseBtn = card.querySelector('.btn-autodl-pause');
+          if (pauseBtn) {
+            pauseBtn.title = isPaused ? 'Resume monitoring' : 'Pause monitoring';
+            const pauseSvg = isPaused
+              ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>'
+              : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>';
+            if (pauseBtn.innerHTML.replace(/\s+/g, '') !== pauseSvg.replace(/\s+/g, '')) {
+              pauseBtn.innerHTML = pauseSvg;
+            }
+          }
+
+          const lastCheck = s.last_checked ? `Checked ${formatTimeAgo(s.last_checked)}` : 'Not checked yet';
+          const knownCount = Array.isArray(s.known_episodes) ? s.known_episodes.length : 0;
+          const dlCount = Array.isArray(s.downloaded_episodes) ? s.downloaded_episodes.length : 0;
+          const lastEp = s.last_episode_name ? `Last: ${escapeHtml(s.last_episode_name)}` : '';
+
+          const metaEl = card.querySelector('.autodl-card-meta');
+          if (metaEl) {
+            const metaHtml = `
+              <span>${lastCheck}</span>
+              <span>Known: ${knownCount} eps • Downloaded: ${dlCount} eps</span>
+              ${lastEp ? `<span title="${lastEp}">${lastEp}</span>` : ''}
+            `;
+            if (metaEl.innerHTML.replace(/\s+/g, ' ') !== metaHtml.replace(/\s+/g, ' ')) {
+              metaEl.innerHTML = metaHtml;
+            }
+          }
+        });
+
+        const statusDot = document.getElementById('autodl-page-status-dot');
+        const statusTxt = document.getElementById('autodl-page-status-text');
+        const countTxt = document.getElementById('autodl-page-count-text');
+        if (statusDot && statusTxt && countTxt) {
+          if (watcherState.enabled) {
+            const isScanning = Boolean(watcherState.is_checking);
+            statusDot.className = 'watcher-pulse-dot' + (isScanning ? ' scanning' : '');
+            statusTxt.textContent = isScanning ? 'Scanning...' : 'Active';
+            countTxt.textContent = `Monitoring ${allSeries.length} anime`;
+          } else {
+            statusDot.className = 'watcher-pulse-dot disabled';
+            statusTxt.textContent = 'Paused';
+            countTxt.textContent = 'Auto-downloader paused';
+          }
+        }
+      }
+    }
+  }
+}
+
+async function monitorUrlInput() {
+  const urlEl = document.getElementById('url');
+  const btn = document.getElementById('url-autodl-btn');
+  if (!urlEl) return;
+  const raw = urlEl.value.trim();
+  if (!raw) {
+    toast('Please enter a Crunchyroll series URL or ID first', 'err');
+    return;
+  }
+  const urls = raw.split(/[\r\n,]+/).map(u => u.trim()).filter(Boolean);
+  if (!urls.length) return;
+
+  if (urls.length === 1 && btn) {
+    const target = urls[0];
+    const isMon = monitoredSeriesMap.has(target);
+    openAutoDlModePopover(btn, {
+      id: target,
+      title: target,
+      url: target.startsWith('http') ? target : `https://www.crunchyroll.com/series/${target}`,
+      isMonitored: isMon,
+    });
+    return;
+  }
+
+  toast(`Adding ${urls.length} show(s) to auto-downloader...`, 'info');
+  let successCount = 0;
+  for (const target of urls) {
+    try {
+      const res = await api('/api/watcher/monitor', {
+        series_id: target,
+        url: target,
+        mode: 'latest_only',
+      });
+      if (res && res.success) {
+        monitoredSeriesMap.set(res.series.id, res.series);
+        successCount++;
+      }
+    } catch (_) {}
+  }
+
+  if (successCount > 0) {
+    toast(`Successfully added ${successCount} show(s) to Auto-DL!`, 'ok');
+    syncAllMonitoredCards();
+    const sRes = await api('/api/watcher/status');
+    if (sRes && sRes.success) updateWatcherState(sRes);
+  } else {
+    toast('Failed to add series to Auto-DL. Verify URL or ID.', 'err');
+  }
+}
+
+function setAutoDlFilterMode(mode) {
+  autoDlFilterMode = mode || 'all';
+  document.querySelectorAll('.autodl-filter-chips .catalog-filter-chip').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.filter === autoDlFilterMode);
+  });
+  renderAutoDlTab();
+}
+
+function toggleAutoDlSearch(forceOpen) {
+  const wrapper = document.getElementById('autodl-search-wrapper');
+  const iconBtn = document.getElementById('btn-toggle-autodl-search');
+  const headerBtn = document.getElementById('btn-toggle-add-anime');
+  if (!wrapper) return;
+  const isCurrentlyOpen = wrapper.style.display !== 'none';
+  const show = forceOpen !== undefined ? Boolean(forceOpen) : !isCurrentlyOpen;
+  wrapper.style.display = show ? 'flex' : 'none';
+  if (iconBtn) iconBtn.classList.toggle('active', show);
+  if (headerBtn) headerBtn.classList.toggle('active', show);
+  if (show) {
+    const input = document.getElementById('autodl-search-input');
+    if (input) {
+      input.focus();
+      input.select();
+    }
+  } else {
+    closeAutoDlSearchDropdown();
+  }
+}
+
+// Backwards-compatible alias for any other callers
+function toggleAutoDlAddSection(forceOpen) {
+  toggleAutoDlSearch(forceOpen);
+}
+
+function isCrunchyrollUrlOrId(val) {
+  const str = (val || '').trim();
+  if (!str) return false;
+  if (/^https?:\/\//i.test(str) || str.includes('crunchyroll.com/')) return true;
+  if (str.startsWith('series/') || str.startsWith('watch/')) return true;
+  if (/^[A-Za-z0-9]{8,12}$/.test(str) && !/[a-z]{4,}/.test(str)) return true;
+  return false;
+}
+
+let autoDlSearchDebounceTimer = null;
+let lastAutoDlSearchQuery = '';
+
+function onAutoDlSearchInput(val) {
+  const query = (val || '').trim();
+  const clearBtn = document.getElementById('autodl-search-clear');
+  const addBtn = document.getElementById('btn-autodl-search-add');
+  const btnText = document.getElementById('btn-autodl-search-text');
+  if (clearBtn) clearBtn.style.display = query ? 'inline-flex' : 'none';
+
+  if (isCrunchyrollUrlOrId(query)) {
+    if (addBtn) addBtn.style.display = 'inline-flex';
+    if (btnText) btnText.textContent = 'monitor anime';
+    closeAutoDlSearchDropdown();
+    return;
+  } else {
+    if (addBtn) addBtn.style.display = 'none';
+  }
+
+  if (!query) {
+    closeAutoDlSearchDropdown();
+    return;
+  }
+
+  if (query.length >= 2) {
+    if (autoDlSearchDebounceTimer) clearTimeout(autoDlSearchDebounceTimer);
+    autoDlSearchDebounceTimer = setTimeout(() => {
+      fetchAutoDlCrunchyrollSearchResults(query);
+    }, 300);
+  } else {
+    closeAutoDlSearchDropdown();
+  }
+}
+
+function onAutoDlSearchKeydown(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    submitAutoDlSearch();
+  } else if (e.key === 'Escape') {
+    closeAutoDlSearchDropdown();
+    toggleAutoDlSearch(false);
+  }
+}
+
+function clearAutoDlSearch() {
+  const inputEl = document.getElementById('autodl-search-input');
+  const clearBtn = document.getElementById('autodl-search-clear');
+  const addBtn = document.getElementById('btn-autodl-search-add');
+  if (inputEl) inputEl.value = '';
+  if (clearBtn) clearBtn.style.display = 'none';
+  if (addBtn) addBtn.style.display = 'none';
+  closeAutoDlSearchDropdown();
+}
+
+function closeAutoDlSearchDropdown() {
+  const dropdown = document.getElementById('autodl-search-dropdown');
+  if (dropdown) dropdown.style.display = 'none';
+}
+
+async function fetchAutoDlCrunchyrollSearchResults(query) {
+  const dropdown = document.getElementById('autodl-search-dropdown');
+  if (!dropdown) return;
+
+  lastAutoDlSearchQuery = query;
+  dropdown.style.display = 'flex';
+  dropdown.innerHTML = `
+    <div class="autodl-dropdown-loading">
+      <div class="spinner"></div>
+      <span>Searching Crunchyroll for "${escapeHtml(query)}"...</span>
+    </div>
+  `;
+
+  try {
+    const res = await api('/api/search', { q: query, n: 8 });
+    const currentInp = document.getElementById('autodl-search-input')?.value.trim();
+    if (currentInp !== query) return;
+
+    const items = res?.results || [];
+    if (!items.length) {
+      dropdown.innerHTML = `
+        <div class="autodl-dropdown-empty">
+          No anime found on Crunchyroll matching "${escapeHtml(query)}"
+        </div>
+      `;
+      return;
+    }
+
+    dropdown.innerHTML = items.map(item => {
+      const id = item.id;
+      const title = item.title || id;
+      const poster = item.poster || '';
+      const isMon = monitoredSeriesMap.has(id);
+      const isMovie = item.type === 'movie_listing';
+      const typeLabel = isMovie ? 'MOVIE' : 'SERIES';
+      const eps = item.episode_count ? `${item.episode_count} ep` : '';
+      const safeId = escapeHtml(id);
+      const safeTitle = escapeHtml(title);
+      const safePoster = escapeHtml(poster);
+
+      return `
+        <div class="autodl-dropdown-item" data-id="${safeId}" data-title="${safeTitle}" data-poster="${safePoster}">
+          <div class="autodl-dropdown-item-left">
+            ${poster
+              ? `<img class="autodl-dropdown-poster" src="${safePoster}" alt="" onerror="this.style.opacity='0.2'">`
+              : `<div class="autodl-dropdown-poster" style="display:flex;align-items:center;justify-content:center;background:#1e1e1e;color:#555;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></div>`
+            }
+            <div class="autodl-dropdown-info">
+              <span class="autodl-dropdown-title" title="${safeTitle}">${safeTitle}</span>
+              <div class="autodl-dropdown-badges">
+                <span class="res-badge ${isMovie ? 'res-badge-movie' : ''}" style="font-size:0.6rem;padding:1px 4px;">${typeLabel}</span>
+                ${eps ? `<span class="res-badge" style="font-size:0.6rem;padding:1px 4px;">${eps}</span>` : ''}
+                ${item.year ? `<span class="res-badge" style="font-size:0.6rem;padding:1px 4px;">${item.year}</span>` : ''}
+              </div>
+            </div>
+          </div>
+          <button type="button" class="btn-s ${isMon ? 'btn-monitor-active' : 'btn-monitor'} autodl-dropdown-add-btn" title="${isMon ? 'Already monitored. Click to toggle mode or manage.' : 'Add to auto-downloader'}">
+            ${isMon ? 'auto-dl ✓' : '+ auto-dl'}
+          </button>
+        </div>
+      `;
+    }).join('');
+
+    dropdown.onclick = (e) => {
+      const itemEl = e.target.closest('.autodl-dropdown-item');
+      if (itemEl && itemEl.dataset.id) {
+        selectAnimeFromAutoDlSearch(itemEl.dataset.id, itemEl.dataset.title, itemEl.dataset.poster);
+      }
+    };
+  } catch (err) {
+    dropdown.innerHTML = `
+      <div class="autodl-dropdown-empty" style="color:#ff6666;">
+        Search error: ${escapeHtml(err.message)}
+      </div>
+    `;
+  }
+}
+
+async function selectAnimeFromAutoDlSearch(id, title, poster) {
+  if (!id) return;
+  const modeEl = document.getElementById('autodl-search-mode');
+  const mode = modeEl ? modeEl.value : 'latest_only';
+
+  closeAutoDlSearchDropdown();
+  clearAutoDlSearch();
+
+  toast(`Adding "${title}" to Auto-Downloader...`, 'info');
+
+  try {
+    const res = await api('/api/watcher/monitor', {
+      series_id: id,
+      title: title,
+      url: `https://www.crunchyroll.com/series/${id}`,
+      poster: poster,
+      mode: mode,
+    });
+    if (res && res.success) {
+      monitoredSeriesMap.set(res.series.id, res.series);
+      const modeLabel = mode === 'all_missing' ? 'All Missing' : 'Future Only';
+      toast(`Added "${res.series.title || title}" to Auto-DL! (${modeLabel})`, 'ok');
+      syncAllMonitoredCards();
+      if (mode === 'all_missing') {
+        checkSingleMonitoredSeries(id);
+      }
+      const sRes = await api('/api/watcher/status');
+      if (sRes && sRes.success) updateWatcherState(sRes);
+    } else {
+      toast(res?.error || 'Failed to add series to auto-downloader', 'err');
+    }
+  } catch (err) {
+    toast('Error adding series: ' + err.message, 'err');
+  }
+}
+
+async function submitAutoDlSearch() {
+  const inputEl = document.getElementById('autodl-search-input');
+  const modeEl = document.getElementById('autodl-search-mode');
+  const btn = document.getElementById('btn-autodl-search-add');
+  if (!inputEl) return;
+  const raw = inputEl.value.trim();
+  if (!raw) {
+    toast('Search for an anime by title or paste a URL / ID', 'err');
+    inputEl.focus();
+    return;
+  }
+  const mode = modeEl ? modeEl.value : 'latest_only';
+
+  if (isCrunchyrollUrlOrId(raw)) {
+    closeAutoDlSearchDropdown();
+    if (btn) {
+      btn.disabled = true;
+      btn.classList.add('loading');
+    }
+    toast('Adding series to Auto-Downloader...', 'info');
+
+    try {
+      const res = await api('/api/watcher/monitor', {
+        series_id: raw,
+        url: raw.startsWith('http') ? raw : `https://www.crunchyroll.com/series/${raw}`,
+        mode: mode,
+      });
+      if (res && res.success) {
+        monitoredSeriesMap.set(res.series.id, res.series);
+        clearAutoDlSearch();
+        const modeLabel = mode === 'all_missing' ? 'All Missing' : 'Future Only';
+        toast(`Added "${res.series.title || res.series.id}" to Auto-DL! (${modeLabel})`, 'ok');
+        syncAllMonitoredCards();
+        if (mode === 'all_missing') {
+          checkSingleMonitoredSeries(res.series.id);
+        }
+        const sRes = await api('/api/watcher/status');
+        if (sRes && sRes.success) updateWatcherState(sRes);
+      } else {
+        toast(res?.error || 'Failed to add series to auto-downloader', 'err');
+      }
+    } catch (err) {
+      toast('Error adding series: ' + err.message, 'err');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.classList.remove('loading');
+      }
+    }
+    return;
+  }
+
+  // If title search, trigger search immediately
+  if (autoDlSearchDebounceTimer) clearTimeout(autoDlSearchDebounceTimer);
+  await fetchAutoDlCrunchyrollSearchResults(raw);
+}
+
+document.addEventListener('click', (e) => {
+  if (!document.contains(e.target)) return;
+  if (!e.target.closest('#autodl-search-wrapper') && !e.target.closest('#btn-toggle-autodl-search')) {
+    closeAutoDlSearchDropdown();
+  }
+});
+
+async function changeAutoDlSeriesMode(sid, newMode) {
+  if (!sid) return;
+  const cur = monitoredSeriesMap.get(sid);
+  if (!cur) return;
+  const modeVal = newMode === 'all_missing' ? 'all_missing' : 'latest_only';
+  const modeLabel = modeVal === 'all_missing' ? 'All Missing' : 'Future Only';
+  toast(`Updating "${cur.title || sid}" to ${modeLabel}...`, 'info');
+  try {
+    const res = await api('/api/watcher/monitor', {
+      series_id: sid,
+      mode: modeVal,
+      title: cur.title,
+      url: cur.url,
+      poster: cur.poster,
+    });
+    if (res && res.success) {
+      monitoredSeriesMap.set(sid, res.series);
+      toast(`"${cur.title || sid}" mode set to ${modeLabel}!`, 'ok');
+      syncAllMonitoredCards();
+      if (modeVal === 'all_missing') {
+        checkSingleMonitoredSeries(sid);
+      }
+    } else {
+      toast(res?.error || 'Failed to change mode', 'err');
+    }
+  } catch (err) {
+    toast('Error changing mode: ' + err.message, 'err');
+  }
+}
+
+async function toggleAutoDlSeriesMode(sid) {
+  if (!sid) return;
+  const cur = monitoredSeriesMap.get(sid);
+  if (!cur) return;
+  const newMode = cur.mode === 'all_missing' ? 'latest_only' : 'all_missing';
+  await changeAutoDlSeriesMode(sid, newMode);
+}
+
+async function toggleMonitoredSeriesStatus(sid) {
+  if (!sid) return;
+  try {
+    const res = await api('/api/watcher/toggle', { series_id: sid });
+    if (res && res.success) {
+      const cur = monitoredSeriesMap.get(sid);
+      if (cur) {
+        cur.status = res.status;
+        monitoredSeriesMap.set(sid, cur);
+      }
+      toast(`Series is now ${res.status}`, 'ok');
+      syncAllMonitoredCards();
+    } else {
+      toast(res?.error || 'Failed to toggle status', 'err');
+    }
+  } catch (err) {
+    toast('Error toggling series: ' + err.message, 'err');
+  }
+}
+
+function renderAutoDlTab() {
+  const gridEl = document.getElementById('autodl-series-grid');
+  const emptyEl = document.getElementById('autodl-empty-view');
+  const emptyTitle = document.getElementById('autodl-empty-title');
+  const emptyDesc = document.getElementById('autodl-empty-desc');
+  const statusDot = document.getElementById('autodl-page-status-dot');
+  const statusTxt = document.getElementById('autodl-page-status-text');
+  const countTxt = document.getElementById('autodl-page-count-text');
+
+  if (!gridEl) return;
+
+  // Protect active user interaction with select dropdowns
+  if (document.activeElement && (document.activeElement.tagName === 'SELECT' || document.activeElement.classList.contains('autodl-card-mode-select'))) {
+    return;
+  }
+
+  const allSeries = Array.from(monitoredSeriesMap.values());
+  const count = allSeries.length;
+
+  if (statusDot && statusTxt && countTxt) {
+    if (watcherState.enabled) {
+      statusDot.className = 'watcher-pulse-dot' + (watcherState.is_checking ? ' scanning' : '');
+      statusTxt.textContent = watcherState.is_checking ? 'Scanning...' : 'Active';
+      countTxt.textContent = `Monitoring ${count} anime`;
+    } else {
+      statusDot.className = 'watcher-pulse-dot disabled';
+      statusTxt.textContent = 'Paused';
+      countTxt.textContent = 'Auto-downloader paused';
+    }
+  }
+
+  // Filter series by status / mode chip
+  let filtered = allSeries;
+  if (autoDlFilterMode === 'active') {
+    filtered = filtered.filter(s => (s.status || 'active') === 'active');
+  } else if (autoDlFilterMode === 'paused') {
+    filtered = filtered.filter(s => s.status === 'paused');
+  } else if (autoDlFilterMode === 'latest_only') {
+    filtered = filtered.filter(s => (s.mode || 'latest_only') === 'latest_only');
+  } else if (autoDlFilterMode === 'all_missing') {
+    filtered = filtered.filter(s => s.mode === 'all_missing');
+  }
+
+  if (!filtered.length) {
+    gridEl.innerHTML = '';
+    if (emptyEl) {
+      emptyEl.style.display = 'block';
+      if (count > 0 && autoDlFilterMode !== 'all') {
+        if (emptyTitle) emptyTitle.textContent = `No ${autoDlFilterMode} anime found`;
+        if (emptyDesc) emptyDesc.textContent = 'Click "all" to view all your monitored anime.';
+      } else {
+        if (emptyTitle) emptyTitle.textContent = 'No anime monitored yet';
+        if (emptyDesc) emptyDesc.textContent = 'Click the search icon above or "+ add anime" to search Crunchyroll or monitor a series.';
+      }
+    }
+    return;
+  }
+
+  if (emptyEl) emptyEl.style.display = 'none';
+
+  gridEl.innerHTML = filtered.map(s => {
+    const sid = s.id || '';
+    const title = s.title || sid;
+    const url = s.url || `https://www.crunchyroll.com/series/${sid}`;
+    const poster = s.poster || '';
+    const isAllMissing = s.mode === 'all_missing';
+    const isPaused = s.status === 'paused';
+    const lastCheck = s.last_checked ? `Checked ${formatTimeAgo(s.last_checked)}` : 'Not checked yet';
+    const knownCount = Array.isArray(s.known_episodes) ? s.known_episodes.length : 0;
+    const dlCount = Array.isArray(s.downloaded_episodes) ? s.downloaded_episodes.length : 0;
+    const lastEp = s.last_episode_name ? `Last: ${escapeHtml(s.last_episode_name)}` : '';
+
+    return `
+      <div class="autodl-card-item ${isPaused ? 'paused' : ''}" data-id="${escapeHtml(sid)}">
+        ${poster
+          ? `<img class="autodl-card-poster" src="${escapeHtml(poster)}" alt="${escapeHtml(title)}" loading="lazy" onerror="this.style.opacity='0.2'">`
+          : `<div class="autodl-card-poster" style="display:flex;align-items:center;justify-content:center;color:#444;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></div>`
+        }
+        <div class="autodl-card-info">
+          <div class="autodl-card-top">
+            <div class="autodl-card-header-line">
+              <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="autodl-card-title" title="${escapeHtml(title)}">${escapeHtml(title)}</a>
+              ${isPaused ? '<span class="res-badge res-badge-paused" style="font-size:0.58rem;padding:1px 5px;flex-shrink:0;">PAUSED</span>' : ''}
+            </div>
+            <div class="autodl-card-meta">
+              <span>${lastCheck}</span>
+              <span>Known: ${knownCount} eps • Downloaded: ${dlCount} eps</span>
+              ${lastEp ? `<span title="${lastEp}">${lastEp}</span>` : ''}
+            </div>
+          </div>
+          <div class="autodl-card-actions">
+            <div class="autodl-pill-select-wrap ${isAllMissing ? 'pill-all' : 'pill-future'}" title="Monitoring mode: click to change">
+              <select class="autodl-card-mode-select autodl-mode-pill-select" onchange="changeAutoDlSeriesMode('${escapeHtml(sid)}', this.value)" title="Choose monitoring mode: Future Only or All Missing">
+                <option value="latest_only" ${!isAllMissing ? 'selected' : ''}>FUTURE ONLY</option>
+                <option value="all_missing" ${isAllMissing ? 'selected' : ''}>ALL MISSING</option>
+              </select>
+              <svg class="autodl-pill-arrow" width="8" height="5" viewBox="0 0 10 6" fill="none"><path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div class="autodl-card-btn-group">
+              <button type="button" class="btn-icon btn-autodl-check" onclick="checkSingleMonitoredSeries('${escapeHtml(sid)}')" title="Check for new episodes now">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+              </button>
+              <button type="button" class="btn-icon btn-autodl-pause" onclick="toggleMonitoredSeriesStatus('${escapeHtml(sid)}')" title="${isPaused ? 'Resume monitoring' : 'Pause monitoring'}">
+                ${isPaused
+                  ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>'
+                  : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>'
+                }
+              </button>
+              <button type="button" class="btn-icon btn-autodl-stop" onclick="removeMonitoredSeries('${escapeHtml(sid)}')" title="Stop monitoring this anime">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// Background heartbeat polling (every 10 seconds when no active download poll is running)
+setInterval(async () => {
+  if (!pollTimer) {
+    try {
+      const state = await api('/api/state');
+      if (state) {
+        if (state.watcher) updateWatcherState(state.watcher);
+        if (state.download && state.download.status === 'running') startPolling();
+      }
+    } catch (_) {}
+  }
+}, 10000);

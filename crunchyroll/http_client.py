@@ -26,6 +26,7 @@ class CrunchyrollHttpClient:
         self.username = username
         self.password = password
         self.token = ""
+        has_explicit_etp_rt = bool(etp_rt and str(etp_rt).strip())
 
         self.session_pool = session_pool or SessionPool(
             config=ConcurrencyConfig(
@@ -58,55 +59,79 @@ class CrunchyrollHttpClient:
             except Exception as e:
                 print(f"[auth] Android TV credentials login failed: {e}")
 
-        # prioritize Android TV token if available
-        if self.android_token:
-            self.token = self.android_token
-        elif self.android_refresh_token:
-            self.refresh_android_token()
-        elif self.etp_rt:
+        # 1. Prioritize explicit etp_rt if passed directly by caller
+        if has_explicit_etp_rt and not (self.username and self.password):
             try:
                 self.token = get_access_token(self.etp_rt)
             except Exception as e:
-                print(f"[auth] Failed to refresh web token from etp_rt: {e}")
+                print(f"[auth] Failed to obtain web token from etp_rt: {e}", flush=True)
 
-        # Fallback to anonymous guest token for catalog discovery if no valid user token
+        # 2. Otherwise prioritize Android TV credentials if available
+        if not self.token:
+            if self.android_refresh_token:
+                from .auth import is_jwt_expired
+                if not self.android_token or is_jwt_expired(self.android_token):
+                    self.refresh_android_token()
+                else:
+                    self.token = self.android_token
+            elif self.android_token:
+                self.token = self.android_token
+
+        # 3. Fallback to etp_rt from config if Android tokens failed/purged
+        if not self.token and self.etp_rt:
+            try:
+                self.token = get_access_token(self.etp_rt)
+            except Exception as e:
+                print(f"[auth] Failed to refresh web token from etp_rt: {e}", flush=True)
+
+        # 4. Fallback to anonymous guest token for catalog discovery if no valid user token
         if not self.token:
             try:
                 from .auth import get_guest_token
                 self.token = get_guest_token()
             except Exception as e:
-                print(f"[auth] Failed to obtain guest token: {e}")
+                print(f"[auth] Failed to obtain guest token: {e}", flush=True)
 
     def refresh_token(self) -> None:
         if self.android_refresh_token:
             self.refresh_android_token()
-        elif self.etp_rt:
+        if not self.token and self.etp_rt:
             try:
                 self.token = get_access_token(self.etp_rt, force_refresh=True)
             except Exception as e:
-                print(f"[auth] Failed to refresh web token from etp_rt: {e}")
-                try:
-                    from .auth import get_guest_token
-                    self.token = get_guest_token(force_refresh=True)
-                except Exception:
-                    pass
-        else:
+                print(f"[auth] Failed to refresh web token from etp_rt: {e}", flush=True)
+        if not self.token:
             try:
                 from .auth import get_guest_token
                 self.token = get_guest_token(force_refresh=True)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[auth] Failed to obtain guest token: {e}", flush=True)
+
+    def switch_profile(self, profile_id: str) -> str:
+        """Switch active profile on this HTTP client session."""
+        if self.etp_rt:
+            from .auth import switch_profile
+            self.token = switch_profile(self.etp_rt, profile_id)
+            return self.token
+        return self.token
 
     def refresh_android_token(self) -> None:
         if self.android_refresh_token:
-            from .auth import refresh_android_tv_token
+            from .auth import refresh_android_tv_token, save_config
             try:
                 new_acc, new_ref = refresh_android_tv_token(self.android_refresh_token)
                 self.android_token = new_acc
                 self.android_refresh_token = new_ref
                 self.token = new_acc
+                print("[auth] Android TV token refreshed successfully.", flush=True)
             except Exception as e:
-                print(f"[auth] Failed to refresh Android TV token: {e}")
+                print(f"[auth] Failed to refresh Android TV token ({e}); purging stale Android credentials.", flush=True)
+                self.android_token = ""
+                self.android_refresh_token = ""
+                save_config({
+                    "android_access_token": None,
+                    "android_refresh_token": None,
+                })
 
     def _rate_limit_wait(self, response: requests.Response, retry_number: int) -> int:
         """Return a flood-wait-aware delay for a 420/429 response."""
@@ -128,9 +153,13 @@ class CrunchyrollHttpClient:
         method: str,
         url: str,
         cancel_event: Optional[threading.Event] = None,
+        skip_rate_limit: bool = False,
         **kwargs,
     ) -> requests.Response:
-        RateLimitGate.wait_if_blocked()
+        if "skip_rate_limit" in kwargs:
+            skip_rate_limit = bool(kwargs.pop("skip_rate_limit"))
+        if not skip_rate_limit:
+            RateLimitGate.wait_if_blocked()
         # Tolerate callers forwarding cancel_event inside kwargs (e.g. pooled
         # helpers) so it never leaks into requests' session.request().
         if cancel_event is None:
@@ -146,9 +175,9 @@ class CrunchyrollHttpClient:
         except (TypeError, ValueError):
             requested_timeout = float(self.DEFAULT_REQUEST_TIMEOUT)
 
-        # Enforce connect timeout (max 5s) and read timeout.
+        # Enforce connect timeout and read timeout.
         # Concrete tuple timeouts are enforced directly on socket recv by requests.
-        kwargs["timeout"] = (min(5.0, requested_timeout), requested_timeout)
+        kwargs["timeout"] = (min(15.0, requested_timeout), requested_timeout)
         if "Authorization" not in headers and self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         if "User-Agent" not in headers:
@@ -175,8 +204,23 @@ class CrunchyrollHttpClient:
         )
         heartbeat = threading.Thread(target=_heartbeat, daemon=True)
         heartbeat.start()
+        max_net_retries = 2
         try:
-            response = self.session.request(method, url, headers=headers, **kwargs)
+            for attempt in range(max_net_retries + 1):
+                try:
+                    response = self.session.request(method, url, headers=headers, **kwargs)
+                    break
+                except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+                    if attempt < max_net_retries:
+                        backoff = (attempt + 1) * 1.5
+                        print(
+                            f"[http] Transient network {type(exc).__name__} for {method.upper()} {request_path}; "
+                            f"retrying in {backoff:.1f}s (attempt {attempt + 1}/{max_net_retries})...",
+                            flush=True,
+                        )
+                        time.sleep(backoff)
+                    else:
+                        raise
         except Exception as exc:
             elapsed = time.monotonic() - request_started
             print(
@@ -194,40 +238,64 @@ class CrunchyrollHttpClient:
             f"HTTP {response.status_code} after {elapsed:.1f}s",
             flush=True,
         )
-        if response.status_code == 401:
-            print("[http] Access token expired; refreshing and retrying request...", flush=True)
-            if self.android_refresh_token:
-                self.refresh_android_token()
-                if self.android_token:
-                    headers["Authorization"] = f"Bearer {self.android_token}"
-            elif self.etp_rt:
-                self.refresh_token()
-                if self.token:
-                    headers["Authorization"] = f"Bearer {self.token}"
-            else:
-                try:
-                    from .auth import get_guest_token
-                    self.token = get_guest_token(force_refresh=True)
-                    if self.token:
-                        headers["Authorization"] = f"Bearer {self.token}"
-                except Exception:
-                    pass
-            retry_started = time.monotonic()
-            try:
-                response = self.session.request(method, url, headers=headers, **kwargs)
-            except Exception as exc:
-                elapsed = time.monotonic() - retry_started
-                print(
-                    f"[http] Refreshed-token retry failed for {method.upper()} {request_path} "
-                    f"after {elapsed:.1f}s: {type(exc).__name__}: {exc}",
-                    flush=True,
-                )
-                raise
+        if response.status_code in (401, 403):
             print(
-                f"[http] Refreshed-token retry response: HTTP {response.status_code} "
-                f"after {time.monotonic() - retry_started:.1f}s",
+                f"[http] Received HTTP {response.status_code} for {method.upper()} {request_path}; "
+                f"attempting token refresh and retry...",
                 flush=True,
             )
+            old_token = self.token
+            refreshed = False
+
+            # 1. Try refreshing Android TV token if refresh token is present
+            if self.android_refresh_token:
+                try:
+                    self.refresh_android_token()
+                    if self.android_token and self.android_token != old_token:
+                        headers["Authorization"] = f"Bearer {self.android_token}"
+                        refreshed = True
+                except Exception as exc:
+                    print(f"[http] Android token refresh failed: {exc}", flush=True)
+
+            # 2. Try etp_rt web token if Android didn't refresh
+            if not refreshed and self.etp_rt:
+                try:
+                    self.token = get_access_token(self.etp_rt, force_refresh=True)
+                    if self.token and self.token != old_token:
+                        headers["Authorization"] = f"Bearer {self.token}"
+                        refreshed = True
+                except Exception as exc:
+                    print(f"[http] Web token refresh failed: {exc}", flush=True)
+
+            # 3. For public/catalog browse & search endpoints, fallback to guest token
+            if not refreshed and any(segment in request_path for segment in ("/content/", "/discover/", "/browse")):
+                try:
+                    from .auth import get_guest_token
+                    guest_tok = get_guest_token(force_refresh=True)
+                    if guest_tok and guest_tok != old_token:
+                        self.token = guest_tok
+                        headers["Authorization"] = f"Bearer {guest_tok}"
+                        refreshed = True
+                except Exception as exc:
+                    print(f"[http] Guest token fallback failed: {exc}", flush=True)
+
+            if refreshed:
+                retry_started = time.monotonic()
+                try:
+                    response = self.session.request(method, url, headers=headers, **kwargs)
+                except Exception as exc:
+                    elapsed = time.monotonic() - retry_started
+                    print(
+                        f"[http] Refreshed-token retry failed for {method.upper()} {request_path} "
+                        f"after {elapsed:.1f}s: {type(exc).__name__}: {exc}",
+                        flush=True,
+                    )
+                    raise
+                print(
+                    f"[http] Refreshed-token retry response: HTTP {response.status_code} "
+                    f"after {time.monotonic() - retry_started:.1f}s",
+                    flush=True,
+                )
 
         retries = 0
         while response.status_code in {420, 429} and retries < self.MAX_RATE_LIMIT_RETRIES:
