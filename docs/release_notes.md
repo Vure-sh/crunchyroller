@@ -1,3 +1,12 @@
+## What's Changed in v3.9.0
+
+- **Auto-Downloader & Watcher Tab**: Added a dedicated `auto-dl` tab to monitor ongoing series and automatically grab new episodes on a configurable interval (`15m` to `24h`, plus a `30s` test mode).
+- **Monitoring Modes**: Set each series to **Future Only** (new episodes going forward) or **All Missing** (scans local `Season XX/` folders and backfills missing episodes).
+- **In-Tab Search & Filters**: Search Crunchyroll directly from the Auto-DL tab by title, URL, or ID, and filter tracked shows by status.
+- **Crunchyroll Watchlist Integration**: Directly sync and explore your official Crunchyroll Watchlist/Crunchylists with multi-profile switching, PIN support, and one-click batch downloading or auto-dl tracking.
+- **Compact Expanding Navbar**: Collapsed inactive nav tabs into icon-only buttons with tooltips, smoothly expanding the label on the active tab while keeping the `auto-dl` counter badge visible.
+- **Caching & Cleanup**: Added 10-minute caching for the Recently Added feed and dropped Windows PowerShell toast dependencies to prevent background process leaks.
+
 ### What's Changed in v3.8.1
 
 - **Audio Language Fallback Setting (Addresses #22)**:
