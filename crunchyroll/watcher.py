@@ -305,13 +305,21 @@ class SeriesWatcher:
                     if client:
                         from crunchyroll.api import get_series
                         cfg = self.config_provider()
-                        al = audio_lang or cfg.get("audio_lang", "ja-JP")
-                        sl = subs_lang or cfg.get("subs_lang", "en-US")
+                        # Effective settings: explicit argument, then the
+                        # series' own overrides, then the global defaults.
+                        # Using the globals here when a mode change
+                        # re-initializes known_episodes would mark episodes
+                        # known in a language the series is still waiting for.
+                        eff_audio = audio_lang if audio_lang is not None else (existing.get("audio_lang") if existing else None)
+                        eff_subs = subs_lang if subs_lang is not None else (existing.get("subs_lang") if existing else None)
+                        al = eff_audio or cfg.get("audio_lang", "ja-JP")
+                        sl = eff_subs or cfg.get("subs_lang", "en-US")
                         s_meta = get_series(client, clean_id, al, sl)
                         if s_meta:
                             if mode == "latest_only" and (not existing or is_switching_to_latest or not known_eps):
                                 eps = s_meta.get("episodes", [])
-                                fallback_on = bool(audio_fallback) if audio_fallback is not None else bool(cfg.get("audio_fallback", True))
+                                eff_fallback = audio_fallback if audio_fallback is not None else (existing.get("audio_fallback") if existing else None)
+                                fallback_on = bool(eff_fallback) if eff_fallback is not None else bool(cfg.get("audio_fallback", True))
                                 try:
                                     from crunchyroll.queue import normalize_langs
                                     wanted_audio = normalize_langs(al)

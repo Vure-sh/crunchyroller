@@ -613,3 +613,31 @@ class TestPerSeriesOverrides(unittest.TestCase):
         rec = self.watcher.add_series("SERIES-MODE", "Show", mode="all_missing",
                                       audio_lang="en-US")
         self.assertEqual(rec["audio_lang"], "en-US")
+
+    @patch("crunchyroll.api.get_series")
+    def test_future_only_init_uses_series_overrides(self, mock_get_series):
+        # Regression: switching All Missing -> Future Only must initialize
+        # known_episodes with the series' own overrides, not the global
+        # settings, or a late dub is missed forever.
+        ep_ja = self._ep("EP-1", ["ja-JP"])
+        mock_get_series.return_value = {"episodes": [ep_ja], "title": "Show", "poster": ""}
+        self.watcher.add_series("SERIES-FO", "Show", mode="all_missing")
+        self.watcher.update_series("SERIES-FO", {"audio_lang": "fr-FR", "audio_fallback": False})
+
+        # UI mode change: no override args passed
+        rec = self.watcher.add_series("SERIES-FO", "Show", mode="latest_only")
+        self.assertEqual(rec["mode"], "latest_only")
+        # Japanese-only episode must stay pending: the fr-FR dub is not out
+        self.assertEqual(rec["known_episodes"], [])
+        # and once the fr dub exists it is marked known
+        ep_dub = self._ep("EP-1", ["ja-JP", "fr-FR"])
+        mock_get_series.return_value = {"episodes": [ep_dub], "title": "Show", "poster": ""}
+        rec = self.watcher.add_series("SERIES-FO", "Show", mode="all_missing")
+        rec = self.watcher.add_series("SERIES-FO", "Show", mode="latest_only")
+        self.assertEqual(rec["known_episodes"], ["EP-1"])
+
+        # Control: a series WITHOUT overrides still uses the global
+        # ja-JP + fallback-ON and marks the same episode known right away
+        mock_get_series.return_value = {"episodes": [ep_ja], "title": "Show2", "poster": ""}
+        rec = self.watcher.add_series("SERIES-CTRL", "Show2", mode="latest_only")
+        self.assertEqual(rec["known_episodes"], ["EP-1"])
