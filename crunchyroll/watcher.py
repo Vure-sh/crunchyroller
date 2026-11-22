@@ -26,6 +26,56 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+
+def _episode_audio_locales(ep: Any) -> set:
+    """Collect the audio locales an episode is available in (best effort)."""
+
+    def _field(obj: Any, key: str) -> str:
+        val = obj.get(key) if isinstance(obj, dict) else getattr(obj, key, "")
+        return val if isinstance(val, str) else ""
+
+    locales = set()
+    base = _field(ep, "audio_locale").strip().lower()
+    if base:
+        locales.add(base)
+    versions = ep.get("versions") if isinstance(ep, dict) else getattr(ep, "versions", None)
+    if isinstance(versions, (list, tuple)):
+        for v in versions:
+            loc = _field(v, "audio_locale").strip().lower()
+            if loc:
+                locales.add(loc)
+    return locales
+
+
+def _audio_ready(client: Any, ep: Any, ep_id: str, audio_langs: List[str], audio_fallback: bool) -> bool:
+    """Return whether an episode can be downloaded in the requested audio right now.
+
+    With audio fallback enabled, or when every track is requested, any episode
+    counts as ready (the existing behavior). Otherwise the episode only counts
+    once its dub versions cover at least one requested language - the exact
+    condition under which the downloader would NOT skip it - so an episode that
+    only aired in the original audio stays pending until its dub is released.
+    """
+    if audio_fallback:
+        return True
+    wanted = [str(lang).strip().lower() for lang in audio_langs if str(lang).strip()]
+    if not wanted or any(lang in ("all", "*") for lang in wanted):
+        return True
+    locales = _episode_audio_locales(ep)
+    if not locales and client is not None and ep_id:
+        # The season listing carried no dub versions; ask the object endpoint.
+        try:
+            from crunchyroll.api import get_episode_info
+            info = get_episode_info(client, ep_id)
+            locales = _episode_audio_locales(info.episode_metadata)
+        except Exception as e:
+            logger.debug("Could not verify audio versions for episode %s: %s", ep_id, e)
+            return True  # never stall monitoring on a metadata hiccup
+    if not locales:
+        return True
+    return any(lang in locales for lang in wanted)
+
+
 class MonitoredStore:
     """Thread-safe persistent storage for monitored series and auto-downloader events."""
 
@@ -249,7 +299,19 @@ class SeriesWatcher:
                         if s_meta:
                             if mode == "latest_only" and (not existing or is_switching_to_latest or not known_eps):
                                 eps = s_meta.get("episodes", [])
-                                known_eps = [str(getattr(e, "id", "") or e.get("id", "")) for e in eps if getattr(e, "id", None) or (isinstance(e, dict) and e.get("id"))]
+                                fallback_on = bool(cfg.get("audio_fallback", True))
+                                try:
+                                    from crunchyroll.queue import normalize_langs
+                                    wanted_audio = normalize_langs(al)
+                                except Exception:
+                                    wanted_audio = [al] if al else []
+                                # Episodes not yet out in the requested audio stay pending:
+                                # they are picked up by the next checks once the dub drops.
+                                known_eps = []
+                                for e in eps:
+                                    eid = str(getattr(e, "id", "") or (e.get("id") if isinstance(e, dict) else "")).strip()
+                                    if eid and _audio_ready(client, e, eid, wanted_audio, fallback_on):
+                                        known_eps.append(eid)
                             if not clean_title or clean_title == clean_id:
                                 clean_title = s_meta.get("title") or clean_title
                             if not clean_poster:
@@ -468,8 +530,16 @@ class SeriesWatcher:
 
         from crunchyroll.utils import is_episode_on_disk
 
+        fallback_on = bool(cfg.get("audio_fallback", True))
+        try:
+            from crunchyroll.queue import normalize_langs
+            wanted_audio = normalize_langs(al)
+        except Exception:
+            wanted_audio = [al] if al else []
+
         known_set = set(item.get("known_episodes", []))
         downloaded_set = set(item.get("downloaded_episodes", []))
+        pending_audio = set()  # episodes not yet dubbed in the requested language(s)
 
         # Check if the download directory exists (e.g. external drive connected)
         disk_available = os.path.isdir(os.path.abspath(os.path.expanduser((dl_dir or ".").strip())))
@@ -498,6 +568,14 @@ class SeriesWatcher:
                             is_queued_or_active = True
                 except Exception:
                     pass
+
+            # With audio fallback off, an episode only counts as handled once it
+            # exists in a requested audio language; until then it stays pending
+            # (neither queued nor marked known) so a late dub is picked up.
+            if not _audio_ready(client, ep, ep_id, wanted_audio, fallback_on):
+                pending_audio.add(ep_id)
+                known_set.discard(ep_id)  # heal state recorded before this fix
+                continue
 
             if disk_available:
                 on_disk = is_episode_on_disk(
@@ -543,10 +621,11 @@ class SeriesWatcher:
                             "episode_number": ep_num,
                         })
 
-        # Update known_set with all current episodes
+        # Update known_set with all current episodes that are audio-ready;
+        # episodes still waiting on a dub stay pending for the next pass.
         for ep in all_eps:
             eid = str(getattr(ep, "id", "") or (ep.get("id") if isinstance(ep, dict) else "")).strip()
-            if eid:
+            if eid and eid not in pending_audio:
                 known_set.add(eid)
 
         events: List[Dict[str, Any]] = []

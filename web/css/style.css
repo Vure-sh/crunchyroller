@@ -23,7 +23,7 @@ body::-webkit-scrollbar {
   --border: rgba(255, 255, 255, 0.08);
   --border-hover: rgba(255, 255, 255, 0.18);
   --text: #e0e0e0;
-  --dim: #555;
+  --dim: #8f8f8f;
   --white: #fff;
   --glow: rgba(255, 255, 255, 0.06);
   --glow-strong: rgba(255, 255, 255, 0.12);
@@ -262,7 +262,7 @@ main {
 }
 
 .card-label {
-  font-size: 0.6rem;
+  font-size: 0.68rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.12em;
@@ -301,7 +301,7 @@ input[type="text"]::placeholder,
 input[type="password"]::placeholder,
 input[type="email"]::placeholder,
 input:not([type])::placeholder {
-  color: #444;
+  color: #7a7a7a;
 }
 
 #android-login-panel {
@@ -375,7 +375,7 @@ select option {
 
 label {
   display: block;
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   color: var(--dim);
   margin-bottom: 5px;
   font-weight: 500;
@@ -464,8 +464,8 @@ button:active {
 }
 
 .hint {
-  font-size: 0.68rem;
-  color: #444;
+  font-size: 0.72rem;
+  color: #7a7a7a;
   margin-top: 12px;
   line-height: 1.5;
 }
@@ -573,7 +573,7 @@ input[type="checkbox"]:indeterminate {
 .select-arrow {
   width: 10px;
   height: 6px;
-  color: #666666;
+  color: #8a8a8a;
   transition: transform 0.2s ease, color 0.2s ease;
   flex-shrink: 0;
 }
@@ -2810,7 +2810,7 @@ textarea.multi-url-input:focus {
 }
 
 textarea.multi-url-input::placeholder {
-  color: #444;
+  color: #7a7a7a;
 }
 
 .url-input-hint {
