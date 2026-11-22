@@ -1133,7 +1133,8 @@ def download_episode(
 
     if not versions:
         if not audio_fallback and missing_audio and not audio_all:
-            msg = f"Requested audio [{", ".join(missing_audio)}] is unavailable for '{info.title}' and audio fallback is disabled."
+            missing_list = ", ".join(missing_audio)
+            msg = f"Requested audio [{missing_list}] is unavailable for '{info.title}' and audio fallback is disabled."
             print(f"Skipping episode: {msg}")
             logger.info("Skipping episode: %s", msg)
             raise AudioUnavailableError(msg)
@@ -2233,7 +2234,8 @@ def _download_episode_n_m3u8dl_re(
 
     if not versions:
         if not audio_fallback and missing_audio and not audio_all:
-            msg = f"Requested audio [{", ".join(missing_audio)}] is unavailable for '{info.title}' and audio fallback is disabled."
+            missing_list = ", ".join(missing_audio)
+            msg = f"Requested audio [{missing_list}] is unavailable for '{info.title}' and audio fallback is disabled."
             print(f"Skipping episode: {msg}")
             logger.info("Skipping episode: %s", msg)
             raise AudioUnavailableError(msg)
