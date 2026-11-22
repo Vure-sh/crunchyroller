@@ -582,3 +582,34 @@ class TestPerSeriesOverrides(unittest.TestCase):
         self.store.save(data)
         res = self.watcher.check_series("SERIES-LENIENT")
         self.assertEqual(res["new_episodes"], 1)
+
+    @patch("crunchyroll.api.get_series")
+    def test_mode_change_preserves_per_series_overrides(self, mock_get_series):
+        # Regression: switching monitoring mode re-calls add_series without
+        # overrides; the per-series settings must survive the rebuild.
+        mock_get_series.return_value = {"episodes": [], "title": "Show", "poster": ""}
+        self.watcher.add_series("SERIES-MODE", "Show", mode="latest_only")
+        self.watcher.update_series("SERIES-MODE", {
+            "audio_lang": "fr-FR", "subs_lang": "ar-SA",
+            "video_quality": "720p", "download_dir": "custom-dir",
+            "audio_fallback": False,
+        })
+
+        # Mode change only (what the UI's /api/watcher/monitor call sends)
+        rec = self.watcher.add_series("SERIES-MODE", "Show", mode="all_missing")
+        self.assertEqual(rec["mode"], "all_missing")
+        self.assertEqual(rec["audio_lang"], "fr-FR")
+        self.assertEqual(rec["subs_lang"], "ar-SA")
+        self.assertEqual(rec["video_quality"], "720p")
+        self.assertEqual(rec["download_dir"], "custom-dir")
+        self.assertIs(rec["audio_fallback"], False)
+
+        # Persisted, not just in memory
+        reloaded = self.store.load()["series"]["SERIES-MODE"]
+        self.assertEqual(reloaded["audio_lang"], "fr-FR")
+        self.assertEqual(reloaded["download_dir"], "custom-dir")
+
+        # An explicit value passed with the re-add still wins over the old one
+        rec = self.watcher.add_series("SERIES-MODE", "Show", mode="all_missing",
+                                      audio_lang="en-US")
+        self.assertEqual(rec["audio_lang"], "en-US")

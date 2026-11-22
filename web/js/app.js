@@ -4926,6 +4926,13 @@ function handleWatcherModalBackdropClick(e) {
   }
 }
 
+function seriesHasOverrides(s) {
+  return !!(s && (s.audio_lang || s.subs_lang || s.video_quality || s.download_dir
+    || (s.audio_fallback !== null && s.audio_fallback !== undefined)));
+}
+
+const SERIES_CUSTOM_BADGE_HTML = '<span class="res-badge res-badge-custom" style="font-size:0.6rem;padding:1px 5px;" title="This anime has its own settings">CUSTOM</span>';
+
 function renderWatcherModalSeries() {
   const listEl = document.getElementById('watcher-series-list');
   const emptyEl = document.getElementById('watcher-empty-list');
@@ -4968,6 +4975,13 @@ function renderWatcherModalSeries() {
         const targetVal = s.mode === 'all_missing' ? 'all_missing' : 'latest_only';
         if (modeSel.value !== targetVal) modeSel.value = targetVal;
       }
+      const subEl = row.querySelector('.watcher-series-sub');
+      const customBadge = subEl ? subEl.querySelector('.res-badge-custom') : null;
+      if (seriesHasOverrides(s) && !customBadge && modeBadge) {
+        modeBadge.insertAdjacentHTML('afterend', SERIES_CUSTOM_BADGE_HTML);
+      } else if (!seriesHasOverrides(s) && customBadge) {
+        customBadge.remove();
+      }
     });
     return;
   }
@@ -4983,11 +4997,7 @@ function renderWatcherModalSeries() {
     const mode = s.mode === 'all_missing' ? 'ALL MISSING' : 'LATEST ONLY';
     const lastEp = s.last_episode_name ? ` • Last: ${escapeHtml(s.last_episode_name)}` : '';
     const lastCheck = s.last_checked ? ` • Checked ${formatTimeAgo(s.last_checked)}` : '';
-    const hasOverrides = !!(s.audio_lang || s.subs_lang || s.video_quality || s.download_dir
-      || (s.audio_fallback !== null && s.audio_fallback !== undefined));
-    const overrideBadge = hasOverrides
-      ? '<span class="res-badge res-badge-custom" style="font-size:0.6rem;padding:1px 5px;" title="This anime has its own settings">CUSTOM</span>'
-      : '';
+    const overrideBadge = seriesHasOverrides(s) ? SERIES_CUSTOM_BADGE_HTML : '';
 
     return `
       <div class="watcher-series-row" data-id="${escapeHtml(sid)}">

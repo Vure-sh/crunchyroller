@@ -341,10 +341,13 @@ class SeriesWatcher:
                 "url": final_url,
                 "poster": final_poster,
                 "mode": mode or (existing.get("mode") if existing else "latest_only"),
-                "audio_lang": audio_lang,
-                "subs_lang": subs_lang,
-                "video_quality": video_quality,
-                "download_dir": download_dir,
+                # Re-adding (e.g. a mode change from the UI) passes no
+                # overrides; keep the existing per-series settings in that
+                # case instead of silently resetting them to the defaults.
+                "audio_lang": audio_lang if audio_lang is not None else (existing.get("audio_lang") if existing else None),
+                "subs_lang": subs_lang if subs_lang is not None else (existing.get("subs_lang") if existing else None),
+                "video_quality": video_quality if video_quality is not None else (existing.get("video_quality") if existing else None),
+                "download_dir": download_dir if download_dir is not None else (existing.get("download_dir") if existing else None),
                 "audio_fallback": audio_fallback if audio_fallback is not None else (existing.get("audio_fallback") if existing else None),
                 "known_episodes": known_eps,
                 "downloaded_episodes": downloaded_eps,
