@@ -253,6 +253,7 @@ class SeriesWatcher:
         subs_lang: Optional[str] = None,
         video_quality: Optional[str] = None,
         download_dir: Optional[str] = None,
+        audio_fallback: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """Add or update a series in the monitored watchlist."""
         clean_id = (series_id or "").strip()
@@ -310,7 +311,7 @@ class SeriesWatcher:
                         if s_meta:
                             if mode == "latest_only" and (not existing or is_switching_to_latest or not known_eps):
                                 eps = s_meta.get("episodes", [])
-                                fallback_on = bool(cfg.get("audio_fallback", True))
+                                fallback_on = bool(audio_fallback) if audio_fallback is not None else bool(cfg.get("audio_fallback", True))
                                 try:
                                     from crunchyroll.queue import normalize_langs
                                     wanted_audio = normalize_langs(al)
@@ -344,6 +345,7 @@ class SeriesWatcher:
                 "subs_lang": subs_lang,
                 "video_quality": video_quality,
                 "download_dir": download_dir,
+                "audio_fallback": audio_fallback if audio_fallback is not None else (existing.get("audio_fallback") if existing else None),
                 "known_episodes": known_eps,
                 "downloaded_episodes": downloaded_eps,
                 "last_checked": existing.get("last_checked", "") if existing else "",
@@ -387,6 +389,45 @@ class SeriesWatcher:
                 self.store.save(data)
                 return new_st
             return None
+
+    SERIES_OVERRIDABLE_KEYS = ("audio_lang", "subs_lang", "video_quality", "download_dir", "audio_fallback")
+
+    def update_series(self, series_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Update per-series overrides for one monitored series.
+
+        Passing None or an empty string for an override clears it, so the
+        series falls back to the global default again. Unknown keys are
+        ignored. Returns the updated record, or None when not monitored.
+        """
+        clean_id = (series_id or "").strip()
+        if not clean_id:
+            return None
+        with self._lock:
+            data = self.store.load()
+            series_map = data.get("series", {})
+            if clean_id not in series_map:
+                return None
+            item = series_map[clean_id]
+
+            if "mode" in updates and updates["mode"] in ("latest_only", "all_missing"):
+                item["mode"] = updates["mode"]
+
+            for key in self.SERIES_OVERRIDABLE_KEYS:
+                if key not in updates:
+                    continue
+                val = updates[key]
+                if key == "audio_fallback":
+                    item[key] = None if val is None else bool(val)
+                    continue
+                text = str(val).strip() if val is not None else ""
+                item[key] = text or None
+
+            series_map[clean_id] = item
+            data["series"] = series_map
+            self.store.save(data)
+            logger.info("Updated per-series settings for %s: %s", clean_id,
+                        {k: updates[k] for k in updates if k in self.SERIES_OVERRIDABLE_KEYS or k == "mode"})
+            return item
 
     def update_settings(self, updates: Dict[str, Any]) -> Dict[str, Any]:
         """Update auto-downloader operational settings."""
@@ -541,7 +582,8 @@ class SeriesWatcher:
 
         from crunchyroll.utils import is_episode_on_disk
 
-        fallback_on = bool(cfg.get("audio_fallback", True))
+        series_fb = item.get("audio_fallback")
+        fallback_on = bool(series_fb) if series_fb is not None else bool(cfg.get("audio_fallback", True))
         try:
             from crunchyroll.queue import normalize_langs
             wanted_audio = normalize_langs(al)
@@ -654,7 +696,7 @@ class SeriesWatcher:
                 "enable_hedging": cfg.get("enable_hedging", False),
                 "enable_resume": cfg.get("enable_resume", True),
                 "bitrate_mode": cfg.get("bitrate_mode", "highest"),
-                "audio_fallback": cfg.get("audio_fallback", True),
+                "audio_fallback": fallback_on,
             }
 
             logger.info("[watcher] Detected %d new episode(s) for '%s'!", len(to_download), title)

@@ -948,6 +948,47 @@
     </div>
   </div>
 
+
+  <div id="series-settings-modal" class="modal-backdrop" style="display:none;" onclick="handleSeriesSettingsBackdropClick(event)">
+    <div class="modal-dialog modal-dialog-ss">
+      <div class="modal-header">
+        <div class="modal-pin-title-box">
+          <div class="modal-title" id="series-settings-title">Series settings</div>
+          <div class="modal-subtitle">Overrides for this anime only. Unset fields follow your dashboard defaults.</div>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="grid2">
+          <div class="field">
+            <label>audio language</label>
+            <div id="ss-audio" class="select-dropdown"></div>
+          </div>
+          <div class="field">
+            <label>subtitles</label>
+            <div id="ss-subs" class="select-dropdown"></div>
+          </div>
+          <div class="field">
+            <label>video quality</label>
+            <div id="ss-quality" class="select-dropdown"></div>
+          </div>
+          <div class="field">
+            <label>audio fallback</label>
+            <div id="ss-fallback" class="select-dropdown"></div>
+          </div>
+        </div>
+        <div class="field">
+          <label>download folder</label>
+          <input type="text" id="ss-dir" placeholder="default (global)">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-s" onclick="resetSeriesSettings()" title="Clear every override back to the global defaults">reset to global</button>
+        <button type="button" class="btn-s" onclick="closeSeriesSettings()">cancel</button>
+        <button type="button" class="btn-s" onclick="saveSeriesSettings()" style="border-color:rgba(255,255,255,0.85);">save</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast"></div>
   <script src="/js/particles.js?v=3.8.1"></script>
   <script src="/js/app.js?v=3.8.1"></script>

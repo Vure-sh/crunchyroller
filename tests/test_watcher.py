@@ -479,3 +479,106 @@ class TestWatcherAudioReadinessEdgeCases(unittest.TestCase):
         res = self.watcher.check_series("SERIES-EMPTY")
         self.assertEqual(res["new_episodes"], 1)
         self.mock_queue.enqueue_batch.assert_called_once()
+
+
+class TestPerSeriesOverrides(unittest.TestCase):
+    """Per-series watch settings: overrides apply to one series only and
+    fall back to the global config when cleared."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.store_file = os.path.join(self.temp_dir, "test_monitored.json")
+        self.store = MonitoredStore(self.store_file)
+
+        self.mock_queue = MagicMock()
+        self.mock_queue.enqueue_batch.return_value = ["job-1"]
+        self.mock_client = MagicMock()
+        self.mock_config = {
+            "audio_lang": "ja-JP",
+            "subs_lang": "en-US",
+            "video_quality": "1080p",
+            "audio_quality": "192k",
+            "download_dir": os.path.join(self.temp_dir, "no-such-dir"),
+            "workers": 16,
+            "audio_fallback": True,  # global default: fallback ON
+        }
+        self.watcher = SeriesWatcher(
+            queue=self.mock_queue,
+            client_factory=lambda: self.mock_client,
+            config_provider=lambda: self.mock_config,
+            store=self.store,
+        )
+
+    def tearDown(self):
+        try:
+            shutil.rmtree(self.temp_dir)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _ep(ep_id, locales, number=1):
+        from crunchyroll.types import DubVersion
+        versions = [
+            DubVersion(guid=f"g-{ep_id}-{loc}", media_guid="", season_guid="", audio_locale=loc, locale="")
+            for loc in locales
+        ]
+        return MagicMock(id=ep_id, episode_number=number, season_number=1,
+                         title=f"Ep {ep_id}", season_title="S1",
+                         audio_locale=locales[0] if locales else "",
+                         versions=versions)
+
+    @patch("crunchyroll.api.get_series")
+    def test_update_series_sets_and_clears_overrides(self, mock_get_series):
+        mock_get_series.return_value = {"episodes": [], "title": "Show", "poster": ""}
+        self.watcher.add_series("SERIES-CFG", "Show", mode="latest_only")
+
+        rec = self.watcher.update_series("SERIES-CFG", {
+            "audio_lang": "fr-FR", "subs_lang": "ar-SA",
+            "video_quality": "720p", "audio_fallback": False,
+        })
+        self.assertEqual(rec["audio_lang"], "fr-FR")
+        self.assertEqual(rec["subs_lang"], "ar-SA")
+        self.assertEqual(rec["video_quality"], "720p")
+        self.assertIs(rec["audio_fallback"], False)
+
+        # Persisted, not just in memory
+        reloaded = self.store.load()["series"]["SERIES-CFG"]
+        self.assertEqual(reloaded["audio_lang"], "fr-FR")
+        self.assertIs(reloaded["audio_fallback"], False)
+
+        # Clearing returns to None -> inherit global defaults
+        rec = self.watcher.update_series("SERIES-CFG", {
+            "audio_lang": None, "subs_lang": "", "video_quality": None,
+            "download_dir": "", "audio_fallback": None,
+        })
+        self.assertIsNone(rec["audio_lang"])
+        self.assertIsNone(rec["subs_lang"])
+        self.assertIsNone(rec["video_quality"])
+        self.assertIsNone(rec["audio_fallback"])
+
+        # Unknown series -> None
+        self.assertIsNone(self.watcher.update_series("NOPE", {"audio_lang": "fr-FR"}))
+
+    @patch("crunchyroll.api.get_series")
+    def test_per_series_audio_fallback_overrides_global(self, mock_get_series):
+        # Global fallback is ON, but this series turns it OFF and wants fr-FR:
+        # a Japanese-only episode must stay pending for this series.
+        ep_ja = self._ep("EP-1", ["ja-JP"])
+        mock_get_series.return_value = {"episodes": [ep_ja], "title": "Show", "poster": ""}
+
+        self.watcher.add_series("SERIES-STRICT", "Show", mode="latest_only")
+        self.watcher.update_series("SERIES-STRICT", {"audio_lang": "fr-FR", "audio_fallback": False})
+
+        res = self.watcher.check_series("SERIES-STRICT")
+        self.assertEqual(res["new_episodes"], 0)
+        self.mock_queue.enqueue_batch.assert_not_called()
+
+        # A second series WITHOUT the override still uses the global fallback
+        # and downloads the same Japanese-only episode right away.
+        self.mock_queue.enqueue_batch.return_value = ["job-2"]
+        self.watcher.add_series("SERIES-LENIENT", "Show2", mode="latest_only")
+        data = self.store.load()
+        data["series"]["SERIES-LENIENT"]["known_episodes"] = []
+        self.store.save(data)
+        res = self.watcher.check_series("SERIES-LENIENT")
+        self.assertEqual(res["new_episodes"], 1)

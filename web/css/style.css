@@ -4826,3 +4826,30 @@ textarea.multi-url-input::placeholder {
   line-height: 1.45;
 }
 
+
+/* per-series settings modal + gear */
+.modal-dialog-ss {
+  max-width: 460px;
+}
+
+.modal-dialog-ss .modal-body {
+  padding: 4px 0 8px;
+}
+
+.btn-gear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+}
+
+.btn-gear svg {
+  display: block;
+}
+
+.res-badge-custom {
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: var(--text);
+  border-radius: 4px;
+  letter-spacing: 0.08em;
+}

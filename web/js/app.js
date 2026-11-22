@@ -4983,6 +4983,11 @@ function renderWatcherModalSeries() {
     const mode = s.mode === 'all_missing' ? 'ALL MISSING' : 'LATEST ONLY';
     const lastEp = s.last_episode_name ? ` • Last: ${escapeHtml(s.last_episode_name)}` : '';
     const lastCheck = s.last_checked ? ` • Checked ${formatTimeAgo(s.last_checked)}` : '';
+    const hasOverrides = !!(s.audio_lang || s.subs_lang || s.video_quality || s.download_dir
+      || (s.audio_fallback !== null && s.audio_fallback !== undefined));
+    const overrideBadge = hasOverrides
+      ? '<span class="res-badge res-badge-custom" style="font-size:0.6rem;padding:1px 5px;" title="This anime has its own settings">CUSTOM</span>'
+      : '';
 
     return `
       <div class="watcher-series-row" data-id="${escapeHtml(sid)}">
@@ -4995,6 +5000,7 @@ function renderWatcherModalSeries() {
             <span class="watcher-series-title" title="${escapeHtml(title)}">${escapeHtml(title)}</span>
             <div class="watcher-series-sub">
               <span class="res-badge res-badge-monitored" style="font-size:0.6rem;padding:1px 5px;">${mode}</span>
+              ${overrideBadge}
               <span>${lastCheck}${lastEp}</span>
             </div>
           </div>
@@ -5004,12 +5010,98 @@ function renderWatcherModalSeries() {
             <option value="latest_only" ${s.mode !== 'all_missing' ? 'selected' : ''}>Future Only</option>
             <option value="all_missing" ${s.mode === 'all_missing' ? 'selected' : ''}>All Missing</option>
           </select>
+          <button type="button" class="btn-s btn-gear" onclick="openSeriesSettings('${escapeHtml(sid)}')" title="Per-series settings (audio, subtitles, quality)">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          </button>
           <button type="button" class="btn-s" onclick="checkSingleMonitoredSeries('${escapeHtml(sid)}')" title="Check this anime for new episodes now">check</button>
           <button type="button" class="btn-s" onclick="removeMonitoredSeries('${escapeHtml(sid)}')" title="Stop monitoring this anime" style="color:#ff6666;">stop</button>
         </div>
       </div>
     `;
   }).join('');
+}
+
+// ---- Per-series settings (gear icon) ----
+let seriesSettingsSid = null;
+let ssAudioDD = null;
+let ssSubsDD = null;
+let ssQualityDD = null;
+let ssFallbackDD = null;
+
+function ensureSeriesSettingsDropdowns() {
+  if (ssAudioDD) return;
+  const inherit = { val: '', label: 'default (global)' };
+  const noop = () => {};
+  ssAudioDD = new CheckboxDropdown('ss-audio', null, [inherit, ...AUDIO_OPTIONS], '', noop, false);
+  ssSubsDD = new CheckboxDropdown('ss-subs', null, [inherit, ...SUBS_OPTIONS], '', noop, false);
+  ssQualityDD = new CheckboxDropdown('ss-quality', null, [inherit, ...VIDEO_OPTIONS], '', noop, false);
+  ssFallbackDD = new CheckboxDropdown('ss-fallback', null, [
+    inherit,
+    { val: 'on', label: 'on' },
+    { val: 'off', label: 'off' },
+  ], '', noop, false);
+}
+
+function openSeriesSettings(sid) {
+  const s = monitoredSeriesMap.get(sid);
+  if (!s) return;
+  seriesSettingsSid = sid;
+  ensureSeriesSettingsDropdowns();
+  document.getElementById('series-settings-title').textContent = s.title || sid;
+  ssAudioDD.setValue(s.audio_lang || '', false);
+  ssSubsDD.setValue(s.subs_lang || '', false);
+  ssQualityDD.setValue(s.video_quality || '', false);
+  ssFallbackDD.setValue(s.audio_fallback === true ? 'on' : (s.audio_fallback === false ? 'off' : ''), false);
+  document.getElementById('ss-dir').value = s.download_dir || '';
+  document.getElementById('series-settings-modal').style.display = 'flex';
+}
+
+function closeSeriesSettings() {
+  const modal = document.getElementById('series-settings-modal');
+  if (modal) modal.style.display = 'none';
+  seriesSettingsSid = null;
+}
+
+function handleSeriesSettingsBackdropClick(e) {
+  if (e.target && e.target.id === 'series-settings-modal') closeSeriesSettings();
+}
+
+function resetSeriesSettings() {
+  if (!ssAudioDD) return;
+  ssAudioDD.setValue('', false);
+  ssSubsDD.setValue('', false);
+  ssQualityDD.setValue('', false);
+  ssFallbackDD.setValue('', false);
+  document.getElementById('ss-dir').value = '';
+}
+
+async function saveSeriesSettings() {
+  const sid = seriesSettingsSid;
+  if (!sid) return;
+  const fb = ssFallbackDD.value;
+  const payload = {
+    series_id: sid,
+    audio_lang: ssAudioDD.value || null,
+    subs_lang: ssSubsDD.value || null,
+    video_quality: ssQualityDD.value || null,
+    download_dir: (document.getElementById('ss-dir').value || '').trim() || null,
+    audio_fallback: fb === 'on' ? true : (fb === 'off' ? false : null),
+  };
+  try {
+    const res = await api('/api/watcher/update-series', payload);
+    if (res && res.success) {
+      monitoredSeriesMap.set(sid, res.series);
+      toast('Series settings saved');
+      closeSeriesSettings();
+      const sRes = await api('/api/watcher/status');
+      if (sRes && sRes.success) updateWatcherState(sRes);
+      renderWatcherModalSeries();
+    } else {
+      toast(res?.error || 'Failed to save series settings', 'err');
+    }
+  } catch (err) {
+    toast('Error saving series settings: ' + err.message, 'err');
+  }
 }
 
 async function checkSingleMonitoredSeries(sid) {
