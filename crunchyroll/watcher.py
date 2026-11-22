@@ -61,16 +61,24 @@ def _audio_ready(client: Any, ep: Any, ep_id: str, audio_langs: List[str], audio
     wanted = [str(lang).strip().lower() for lang in audio_langs if str(lang).strip()]
     if not wanted or any(lang in ("all", "*") for lang in wanted):
         return True
-    locales = _episode_audio_locales(ep)
-    if not locales and client is not None and ep_id:
+    versions = ep.get("versions") if isinstance(ep, dict) else getattr(ep, "versions", None)
+    has_versions = isinstance(versions, (list, tuple)) and len(versions) > 0
+    if not has_versions:
         # The season listing carried no dub versions; ask the object endpoint.
+        # The base audio_locale alone cannot be trusted here - it would hide
+        # dubs that only the detailed metadata knows about.
+        if client is None or not ep_id:
+            return True  # nothing to verify with; never hit on live paths
         try:
             from crunchyroll.api import get_episode_info
             info = get_episode_info(client, ep_id)
-            locales = _episode_audio_locales(info.episode_metadata)
+            ep = info.episode_metadata
         except Exception as e:
-            logger.debug("Could not verify audio versions for episode %s: %s", ep_id, e)
-            return True  # never stall monitoring on a metadata hiccup
+            # Keep the episode pending and retry next pass. Returning ready
+            # here would mark an unverified episode as known and lose it.
+            logger.info("Could not verify audio versions for episode %s (%s); leaving it pending", ep_id, e)
+            return False
+    locales = _episode_audio_locales(ep)
     if not locales:
         return True
     return any(lang in locales for lang in wanted)

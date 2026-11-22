@@ -357,3 +357,99 @@ class TestWatcherAudioReadiness(unittest.TestCase):
         mock_get_series.return_value = {"episodes": [ep_dubbed], "title": "Show", "poster": ""}
         res = self.watcher.check_series("SERIES-AM")
         self.assertEqual(res["new_episodes"], 1)
+
+
+class TestWatcherAudioReadinessEdgeCases(unittest.TestCase):
+    """PR #25 review follow-ups: empty versions must trigger the detail
+    lookup, and a failed lookup must leave the episode pending."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.store_file = os.path.join(self.temp_dir, "test_monitored.json")
+        self.store = MonitoredStore(self.store_file)
+
+        self.mock_queue = MagicMock()
+        self.mock_queue.enqueue_batch.return_value = ["job-1"]
+        self.mock_client = MagicMock()
+        self.mock_config = {
+            "audio_lang": "fr-FR",
+            "subs_lang": "en-US",
+            "video_quality": "1080p",
+            "audio_quality": "192k",
+            "download_dir": os.path.join(self.temp_dir, "no-such-dir"),
+            "workers": 16,
+            "audio_fallback": False,
+        }
+        self.watcher = SeriesWatcher(
+            queue=self.mock_queue,
+            client_factory=lambda: self.mock_client,
+            config_provider=lambda: self.mock_config,
+            store=self.store,
+        )
+
+    def tearDown(self):
+        try:
+            shutil.rmtree(self.temp_dir)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _detail_info(locales):
+        from crunchyroll.types import DubVersion, EpisodeInfo, EpisodeMetadata
+        versions = [
+            DubVersion(guid=f"g-{loc}", media_guid="", season_guid="", audio_locale=loc, locale="")
+            for loc in locales
+        ]
+        meta = EpisodeMetadata(
+            audio_locale=locales[0] if locales else "",
+            episode_number=5, season_number=1, series_title="Show",
+            availability_starts="", versions=versions, season_title="S1",
+        )
+        return EpisodeInfo(episode_metadata=meta, title="Ep 5", subtitles={})
+
+    @patch("crunchyroll.api.get_episode_info")
+    @patch("crunchyroll.api.get_series")
+    def test_empty_versions_in_listing_trigger_detail_lookup(self, mock_get_series, mock_info):
+        # Listing carries a base audio_locale but NO versions array; the
+        # detailed endpoint knows the French dub is actually available.
+        ep = MagicMock(id="EP-9", episode_number=9, season_number=1, title="Ep 9",
+                       season_title="S1", audio_locale="ja-JP", versions=[])
+        mock_get_series.return_value = {"episodes": [ep], "title": "Show", "poster": ""}
+        mock_info.return_value = self._detail_info(["ja-JP"])
+
+        rec = self.watcher.add_series("SERIES-DETAIL", "Show", mode="latest_only")
+        mock_info.assert_called()
+        self.assertEqual(rec["known_episodes"], [])
+
+        # The dub drops: the detail endpoint now lists fr-FR, and the same
+        # listing (still without versions) must be re-checked in depth.
+        mock_info.return_value = self._detail_info(["ja-JP", "fr-FR"])
+        res = self.watcher.check_series("SERIES-DETAIL")
+        self.assertEqual(res["new_episodes"], 1)
+        self.mock_queue.enqueue_batch.assert_called_once()
+
+    @patch("crunchyroll.api.get_episode_info")
+    @patch("crunchyroll.api.get_series")
+    def test_failed_detail_lookup_keeps_episode_pending(self, mock_get_series, mock_info):
+        # No versions anywhere in the listing; the detail lookup times out.
+        # The episode must stay pending and be retried, not marked known.
+        ep = MagicMock(id="EP-7", episode_number=7, season_number=1, title="Ep 7",
+                       season_title="S1", audio_locale="", versions=[])
+        mock_get_series.return_value = {"episodes": [ep], "title": "Show", "poster": ""}
+        mock_info.side_effect = RuntimeError("timeout")
+
+        rec = self.watcher.add_series("SERIES-FLAKY", "Show", mode="latest_only")
+        self.assertEqual(rec["known_episodes"], [])
+
+        res = self.watcher.check_series("SERIES-FLAKY")
+        self.assertEqual(res["new_episodes"], 0)
+        self.mock_queue.enqueue_batch.assert_not_called()
+        data = self.store.load()
+        self.assertNotIn("EP-7", data["series"]["SERIES-FLAKY"]["known_episodes"])
+
+        # The API recovers on a later pass: the dub is found and queued.
+        mock_info.side_effect = None
+        mock_info.return_value = self._detail_info(["ja-JP", "fr-FR"])
+        res = self.watcher.check_series("SERIES-FLAKY")
+        self.assertEqual(res["new_episodes"], 1)
+        self.mock_queue.enqueue_batch.assert_called_once()
