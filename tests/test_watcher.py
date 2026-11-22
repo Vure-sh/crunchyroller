@@ -453,3 +453,29 @@ class TestWatcherAudioReadinessEdgeCases(unittest.TestCase):
         res = self.watcher.check_series("SERIES-FLAKY")
         self.assertEqual(res["new_episodes"], 1)
         self.mock_queue.enqueue_batch.assert_called_once()
+
+
+    @patch("crunchyroll.api.get_episode_info")
+    @patch("crunchyroll.api.get_series")
+    def test_empty_detail_response_keeps_episode_pending(self, mock_get_series, mock_info):
+        # The detail endpoint answers successfully but with no usable audio
+        # metadata at all: the episode is unverified and must stay pending.
+        ep = MagicMock(id="EP-4", episode_number=4, season_number=1, title="Ep 4",
+                       season_title="S1", audio_locale="", versions=[])
+        mock_get_series.return_value = {"episodes": [ep], "title": "Show", "poster": ""}
+        mock_info.return_value = self._detail_info([])
+
+        rec = self.watcher.add_series("SERIES-EMPTY", "Show", mode="latest_only")
+        self.assertEqual(rec["known_episodes"], [])
+
+        res = self.watcher.check_series("SERIES-EMPTY")
+        self.assertEqual(res["new_episodes"], 0)
+        self.mock_queue.enqueue_batch.assert_not_called()
+        data = self.store.load()
+        self.assertNotIn("EP-4", data["series"]["SERIES-EMPTY"]["known_episodes"])
+
+        # Once real metadata shows the dub, it is picked up.
+        mock_info.return_value = self._detail_info(["ja-JP", "fr-FR"])
+        res = self.watcher.check_series("SERIES-EMPTY")
+        self.assertEqual(res["new_episodes"], 1)
+        self.mock_queue.enqueue_batch.assert_called_once()

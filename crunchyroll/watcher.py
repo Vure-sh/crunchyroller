@@ -80,7 +80,10 @@ def _audio_ready(client: Any, ep: Any, ep_id: str, audio_langs: List[str], audio
             return False
     locales = _episode_audio_locales(ep)
     if not locales:
-        return True
+        # Even the detailed metadata carried no usable audio info, so the
+        # episode is unverified - keep it pending and retry next pass rather
+        # than marking it known.
+        return False
     return any(lang in locales for lang in wanted)
 
 
