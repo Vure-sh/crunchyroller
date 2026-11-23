@@ -10,7 +10,8 @@ services:
       TZ: "${TZ:-UTC}"
     volumes:
       - ./data:/data
-      - ${DOWNLOAD_DIR:-./downloads}:/downloads
+      # /data/anime is the app's default download folder, nothing to set in the UI.
+      - ${DOWNLOAD_DIR:-./downloads}:/data/anime
     ports:
       # The web UI has no login: localhost only unless BIND_IP is set.
       - "${BIND_IP:-127.0.0.1}:8000:8000"

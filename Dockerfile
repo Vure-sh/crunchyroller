@@ -9,11 +9,11 @@ COPY . .
 
 # /data holds config, queue/watcher state, logs and the Widevine keys (searched in the cwd).
 # World-writable so the container can run as any uid (see PUID/PGID in docker-compose.yml).
-RUN mkdir -p /data /downloads && chmod 777 /data /downloads
+RUN mkdir -p /data && chmod 777 /data
 ENV CRUNCHYROLLER_HOST=0.0.0.0     CRUNCHYROLLER_DATA_DIR=/data     XDG_STATE_HOME=/data     HOME=/data     PYTHONUNBUFFERED=1
 USER 1000:1000
 WORKDIR /data
-VOLUME ["/data", "/downloads"]
+VOLUME ["/data"]
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=4)"
