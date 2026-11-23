@@ -41,6 +41,16 @@ pip install -r requirements.txt
 python main.py --gui       # or --browser
 ```
 
+**Docker** (headless server / NAS):
+
+```bash
+cp .env.example .env
+mkdir -p data downloads    # put your Widevine keys in data/
+docker compose up -d --build
+```
+
+Open `http://localhost:8000` and set the download folder to `/downloads` in settings (type it, the folder picker needs a desktop). To open it from another machine, set `BIND_IP` and `ALLOWED_ORIGINS` in `.env`. **The UI has no login and controls your account: never expose it to the internet without an authenticating reverse proxy.**
+
 ## <picture><source media="(prefers-color-scheme: dark)" srcset="readme-assets/icon-terminal-dark.svg"><img width="22" src="readme-assets/icon-terminal-light.svg" alt=""></picture> CLI
 
 ```bash

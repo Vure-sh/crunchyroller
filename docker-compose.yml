@@ -1,0 +1,17 @@
+services:
+  crunchyroller:
+    build: .
+    image: crunchyroller
+    container_name: crunchyroller
+    restart: unless-stopped
+    # Host user that owns ./data and the downloads folder.
+    user: "${PUID:-1000}:${PGID:-1000}"
+    environment:
+      CRUNCHYROLLER_ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:-}"
+      TZ: "${TZ:-UTC}"
+    volumes:
+      - ./data:/data
+      - ${DOWNLOAD_DIR:-./downloads}:/downloads
+    ports:
+      # The web UI has no login: localhost only unless BIND_IP is set.
+      - "${BIND_IP:-127.0.0.1}:8000:8000"
