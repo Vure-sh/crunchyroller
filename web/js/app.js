@@ -4624,7 +4624,6 @@ function updateWatcherState(wState) {
   }
 
   // Update master toggle button and interval select
-  updateWatcherMasterButton();
   const intervalSelect = document.getElementById('watcher-interval');
   if (intervalSelect && wState.interval_minutes !== undefined && document.activeElement !== intervalSelect) {
     const intStr = String(wState.interval_minutes);
@@ -4926,6 +4925,13 @@ function handleWatcherModalBackdropClick(e) {
   }
 }
 
+function seriesHasOverrides(s) {
+  return !!(s && (s.audio_lang || s.subs_lang || s.video_quality || s.download_dir
+    || (s.audio_fallback !== null && s.audio_fallback !== undefined)));
+}
+
+const SERIES_CUSTOM_BADGE_HTML = '<span class="res-badge res-badge-custom" style="font-size:0.6rem;padding:1px 5px;" title="This anime has its own settings">CUSTOM</span>';
+
 function renderWatcherModalSeries() {
   const listEl = document.getElementById('watcher-series-list');
   const emptyEl = document.getElementById('watcher-empty-list');
@@ -4968,6 +4974,13 @@ function renderWatcherModalSeries() {
         const targetVal = s.mode === 'all_missing' ? 'all_missing' : 'latest_only';
         if (modeSel.value !== targetVal) modeSel.value = targetVal;
       }
+      const subEl = row.querySelector('.watcher-series-sub');
+      const customBadge = subEl ? subEl.querySelector('.res-badge-custom') : null;
+      if (seriesHasOverrides(s) && !customBadge && modeBadge) {
+        modeBadge.insertAdjacentHTML('afterend', SERIES_CUSTOM_BADGE_HTML);
+      } else if (!seriesHasOverrides(s) && customBadge) {
+        customBadge.remove();
+      }
     });
     return;
   }
@@ -4983,6 +4996,7 @@ function renderWatcherModalSeries() {
     const mode = s.mode === 'all_missing' ? 'ALL MISSING' : 'LATEST ONLY';
     const lastEp = s.last_episode_name ? ` • Last: ${escapeHtml(s.last_episode_name)}` : '';
     const lastCheck = s.last_checked ? ` • Checked ${formatTimeAgo(s.last_checked)}` : '';
+    const overrideBadge = seriesHasOverrides(s) ? SERIES_CUSTOM_BADGE_HTML : '';
 
     return `
       <div class="watcher-series-row" data-id="${escapeHtml(sid)}">
@@ -4995,6 +5009,7 @@ function renderWatcherModalSeries() {
             <span class="watcher-series-title" title="${escapeHtml(title)}">${escapeHtml(title)}</span>
             <div class="watcher-series-sub">
               <span class="res-badge res-badge-monitored" style="font-size:0.6rem;padding:1px 5px;">${mode}</span>
+              ${overrideBadge}
               <span>${lastCheck}${lastEp}</span>
             </div>
           </div>
@@ -5004,12 +5019,98 @@ function renderWatcherModalSeries() {
             <option value="latest_only" ${s.mode !== 'all_missing' ? 'selected' : ''}>Future Only</option>
             <option value="all_missing" ${s.mode === 'all_missing' ? 'selected' : ''}>All Missing</option>
           </select>
+          <button type="button" class="btn-s btn-gear" onclick="openSeriesSettings('${escapeHtml(sid)}')" title="Per-series settings (audio, subtitles, quality)">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          </button>
           <button type="button" class="btn-s" onclick="checkSingleMonitoredSeries('${escapeHtml(sid)}')" title="Check this anime for new episodes now">check</button>
           <button type="button" class="btn-s" onclick="removeMonitoredSeries('${escapeHtml(sid)}')" title="Stop monitoring this anime" style="color:#ff6666;">stop</button>
         </div>
       </div>
     `;
   }).join('');
+}
+
+// ---- Per-series settings (gear icon) ----
+let seriesSettingsSid = null;
+let ssAudioDD = null;
+let ssSubsDD = null;
+let ssQualityDD = null;
+let ssFallbackDD = null;
+
+function ensureSeriesSettingsDropdowns() {
+  if (ssAudioDD) return;
+  const inherit = { val: '', label: 'default (global)' };
+  const noop = () => {};
+  ssAudioDD = new CheckboxDropdown('ss-audio', null, [inherit, ...AUDIO_OPTIONS], '', noop, false);
+  ssSubsDD = new CheckboxDropdown('ss-subs', null, [inherit, ...SUBS_OPTIONS], '', noop, false);
+  ssQualityDD = new CheckboxDropdown('ss-quality', null, [inherit, ...VIDEO_OPTIONS], '', noop, false);
+  ssFallbackDD = new CheckboxDropdown('ss-fallback', null, [
+    inherit,
+    { val: 'on', label: 'on' },
+    { val: 'off', label: 'off' },
+  ], '', noop, false);
+}
+
+function openSeriesSettings(sid) {
+  const s = monitoredSeriesMap.get(sid);
+  if (!s) return;
+  seriesSettingsSid = sid;
+  ensureSeriesSettingsDropdowns();
+  document.getElementById('series-settings-title').textContent = s.title || sid;
+  ssAudioDD.setValue(s.audio_lang || '', false);
+  ssSubsDD.setValue(s.subs_lang || '', false);
+  ssQualityDD.setValue(s.video_quality || '', false);
+  ssFallbackDD.setValue(s.audio_fallback === true ? 'on' : (s.audio_fallback === false ? 'off' : ''), false);
+  document.getElementById('ss-dir').value = s.download_dir || '';
+  document.getElementById('series-settings-modal').style.display = 'flex';
+}
+
+function closeSeriesSettings() {
+  const modal = document.getElementById('series-settings-modal');
+  if (modal) modal.style.display = 'none';
+  seriesSettingsSid = null;
+}
+
+function handleSeriesSettingsBackdropClick(e) {
+  if (e.target && e.target.id === 'series-settings-modal') closeSeriesSettings();
+}
+
+function resetSeriesSettings() {
+  if (!ssAudioDD) return;
+  ssAudioDD.setValue('', false);
+  ssSubsDD.setValue('', false);
+  ssQualityDD.setValue('', false);
+  ssFallbackDD.setValue('', false);
+  document.getElementById('ss-dir').value = '';
+}
+
+async function saveSeriesSettings() {
+  const sid = seriesSettingsSid;
+  if (!sid) return;
+  const fb = ssFallbackDD.value;
+  const payload = {
+    series_id: sid,
+    audio_lang: ssAudioDD.value || null,
+    subs_lang: ssSubsDD.value || null,
+    video_quality: ssQualityDD.value || null,
+    download_dir: (document.getElementById('ss-dir').value || '').trim() || null,
+    audio_fallback: fb === 'on' ? true : (fb === 'off' ? false : null),
+  };
+  try {
+    const res = await api('/api/watcher/update-series', payload);
+    if (res && res.success) {
+      monitoredSeriesMap.set(sid, res.series);
+      toast('Series settings saved');
+      closeSeriesSettings();
+      const sRes = await api('/api/watcher/status');
+      if (sRes && sRes.success) updateWatcherState(sRes);
+      renderWatcherModalSeries();
+    } else {
+      toast(res?.error || 'Failed to save series settings', 'err');
+    }
+  } catch (err) {
+    toast('Error saving series settings: ' + err.message, 'err');
+  }
 }
 
 async function checkSingleMonitoredSeries(sid) {
@@ -5072,28 +5173,6 @@ async function removeMonitoredSeries(sid) {
   }
 }
 
-function updateWatcherMasterButton() {
-  const btn = document.getElementById('btn-autodl-master-pause');
-  const txt = document.getElementById('btn-autodl-master-text');
-  if (!btn || !txt) return;
-  const isEnabled = watcherState.enabled !== false;
-  const pauseIcon = btn.querySelector('.autodl-pause-icon');
-  const resumeIcon = btn.querySelector('.autodl-resume-icon');
-
-  if (isEnabled) {
-    btn.classList.remove('paused');
-    txt.textContent = 'pause';
-    btn.title = 'Pause auto-downloader background checking';
-    if (pauseIcon) pauseIcon.style.display = 'inline-block';
-    if (resumeIcon) resumeIcon.style.display = 'none';
-  } else {
-    btn.classList.add('paused');
-    txt.textContent = 'resume';
-    btn.title = 'Resume auto-downloader background checking';
-    if (pauseIcon) pauseIcon.style.display = 'none';
-    if (resumeIcon) resumeIcon.style.display = 'inline-block';
-  }
-}
 
 async function toggleWatcherMaster() {
   const newEnabled = !(watcherState.enabled !== false);
@@ -5106,8 +5185,7 @@ async function toggleWatcherMaster() {
     if (res && res.success) {
       watcherState = { ...watcherState, ...(res.settings || {}) };
       toast(newEnabled ? 'Auto-downloader resumed' : 'Auto-downloader paused', 'ok');
-      updateWatcherMasterButton();
-      syncAllMonitoredCards();
+          syncAllMonitoredCards();
     }
   } catch (err) {
     toast('Failed to toggle auto-downloader: ' + err.message, 'err');
@@ -5126,8 +5204,7 @@ async function saveWatcherSettings() {
     if (res && res.success) {
       toast('Auto-downloader interval saved', 'ok');
       watcherState = { ...watcherState, ...(res.settings || {}) };
-      updateWatcherMasterButton();
-      syncAllMonitoredCards();
+          syncAllMonitoredCards();
     }
   } catch (err) {
     toast('Failed to save watcher settings: ' + err.message, 'err');
@@ -5249,8 +5326,8 @@ function syncAllMonitoredCards() {
         existingIds.some((id, idx) => id !== filteredIds[idx]);
 
       if (hasStructureChanged) {
-        const activeTag = document.activeElement ? document.activeElement.tagName : '';
-        const isInteracting = gridEl.contains(document.activeElement) && (activeTag === 'SELECT' || activeTag === 'INPUT');
+        const isInteracting = gridEl.contains(document.activeElement) &&
+          document.activeElement.classList.contains('autodl-card-mode-select');
         if (!isInteracting) {
           renderAutoDlTab();
         }
@@ -5289,6 +5366,12 @@ function syncAllMonitoredCards() {
             } else if (!isPaused && pausedBadge) {
               pausedBadge.remove();
             }
+            const customBadge = headerLine.querySelector('.res-badge-custom');
+            if (seriesHasOverrides(s) && !customBadge) {
+              headerLine.insertAdjacentHTML('beforeend', SERIES_CUSTOM_BADGE_HTML);
+            } else if (!seriesHasOverrides(s) && customBadge) {
+              customBadge.remove();
+            }
           }
 
           const pauseBtn = card.querySelector('.btn-autodl-pause');
@@ -5310,9 +5393,7 @@ function syncAllMonitoredCards() {
           const metaEl = card.querySelector('.autodl-card-meta');
           if (metaEl) {
             const metaHtml = `
-              <span>${lastCheck}</span>
-              <span>Known: ${knownCount} eps • Downloaded: ${dlCount} eps</span>
-              ${lastEp ? `<span title="${lastEp}">${lastEp}</span>` : ''}
+              <span${lastEp ? ` title="${lastEp}"` : ''}>${lastCheck} • ${dlCount}/${knownCount} eps${lastEp ? ` • ${lastEp}` : ''}</span>
             `;
             if (metaEl.innerHTML.replace(/\s+/g, ' ') !== metaHtml.replace(/\s+/g, ' ')) {
               metaEl.innerHTML = metaHtml;
@@ -5392,9 +5473,8 @@ async function monitorUrlInput() {
 
 function setAutoDlFilterMode(mode) {
   autoDlFilterMode = mode || 'all';
-  document.querySelectorAll('.autodl-filter-chips .catalog-filter-chip').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.filter === autoDlFilterMode);
-  });
+  const sel = document.getElementById('autodl-filter-select');
+  if (sel && sel.value !== autoDlFilterMode) sel.value = autoDlFilterMode;
   renderAutoDlTab();
 }
 
@@ -5665,7 +5745,7 @@ async function submitAutoDlSearch() {
 
 document.addEventListener('click', (e) => {
   if (!document.contains(e.target)) return;
-  if (!e.target.closest('#autodl-search-wrapper') && !e.target.closest('#btn-toggle-autodl-search')) {
+  if (!e.target.closest('#autodl-search-wrapper') && !e.target.closest('#btn-toggle-add-anime')) {
     closeAutoDlSearchDropdown();
   }
 });
@@ -5739,8 +5819,11 @@ function renderAutoDlTab() {
 
   if (!gridEl) return;
 
-  // Protect active user interaction with select dropdowns
-  if (document.activeElement && (document.activeElement.tagName === 'SELECT' || document.activeElement.classList.contains('autodl-card-mode-select'))) {
+  // Protect active user interaction with the per-card mode selects. The
+  // toolbar selects (filter, interval) live outside the grid and must NOT
+  // block a re-render, or choosing a filter would never apply while the
+  // select keeps focus.
+  if (document.activeElement && document.activeElement.classList.contains('autodl-card-mode-select')) {
     return;
   }
 
@@ -5811,11 +5894,10 @@ function renderAutoDlTab() {
             <div class="autodl-card-header-line">
               <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="autodl-card-title" title="${escapeHtml(title)}">${escapeHtml(title)}</a>
               ${isPaused ? '<span class="res-badge res-badge-paused" style="font-size:0.58rem;padding:1px 5px;flex-shrink:0;">PAUSED</span>' : ''}
+              ${seriesHasOverrides(s) ? SERIES_CUSTOM_BADGE_HTML : ''}
             </div>
             <div class="autodl-card-meta">
-              <span>${lastCheck}</span>
-              <span>Known: ${knownCount} eps • Downloaded: ${dlCount} eps</span>
-              ${lastEp ? `<span title="${lastEp}">${lastEp}</span>` : ''}
+              <span${lastEp ? ` title="${lastEp}"` : ''}>${lastCheck} • ${dlCount}/${knownCount} eps${lastEp ? ` • ${lastEp}` : ''}</span>
             </div>
           </div>
           <div class="autodl-card-actions">
@@ -5826,6 +5908,9 @@ function renderAutoDlTab() {
               </select>
               <svg class="autodl-pill-arrow" width="8" height="5" viewBox="0 0 10 6" fill="none"><path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </div>
+            <button type="button" class="btn-icon btn-autodl-card-settings" onclick="openSeriesSettings('${escapeHtml(sid)}')" title="Settings for this anime (audio, subtitles, quality, folder)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82.33l.06.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            </button>
             <div class="autodl-card-btn-group">
               <button type="button" class="btn-icon btn-autodl-check" onclick="checkSingleMonitoredSeries('${escapeHtml(sid)}')" title="Check for new episodes now">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>

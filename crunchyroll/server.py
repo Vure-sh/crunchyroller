@@ -1760,6 +1760,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 logger.error("Watcher toggle failed: %s", e, exc_info=True)
                 self._json({"success": False, "error": str(e)}, 500)
 
+        elif path == "/api/watcher/update-series":
+            series_id = str(data.get("series_id") or "").strip()
+            if not series_id:
+                self._json({"success": False, "error": "series_id required"}, 400)
+                return
+            updates = {
+                k: data.get(k)
+                for k in ("mode", "audio_lang", "subs_lang", "video_quality", "download_dir", "audio_fallback")
+                if k in data
+            }
+            try:
+                rec = WATCHER.update_series(series_id, updates)
+                if rec is None:
+                    self._json({"success": False, "error": "Series is not monitored"}, 404)
+                else:
+                    self._json({"success": True, "series": rec})
+            except Exception as e:
+                logger.error("Watcher update-series failed: %s", e, exc_info=True)
+                self._json({"success": False, "error": str(e)}, 500)
+
         elif path == "/api/watcher/settings":
             try:
                 updated = WATCHER.update_settings(data)

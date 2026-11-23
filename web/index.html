@@ -759,19 +759,19 @@
         <div class="card" id="autodl-card">
           <!-- Header row -->
           <div class="card-label-row catalog-header-row autodl-header-row">
-            <div class="autodl-header-status" onclick="toggleWatcherMaster()" title="Click to pause or resume auto-downloader" style="cursor: pointer;">
+            <button type="button" class="autodl-header-status" onclick="toggleWatcherMaster()" title="Pause or resume auto-downloader">
               <span class="watcher-pulse-dot" id="autodl-page-status-dot"></span>
               <span id="autodl-page-status-text" class="autodl-status-title">Active</span>
               <span class="autodl-sep">•</span>
               <span id="autodl-page-count-text">Monitoring 0 anime</span>
-            </div>
+            </button>
             <div class="autodl-top-actions">
               <button type="button" class="btn-s btn-pri btn-autodl-toggle-add" id="btn-toggle-add-anime" onclick="toggleAutoDlSearch()" title="Search Crunchyroll to add anime">
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                 <span>add anime</span>
               </button>
               <div class="autodl-interval-picker" title="How often the auto-downloader checks for new episodes">
-                <span class="autodl-interval-label">check every</span>
+                <span class="autodl-interval-label">every</span>
                 <select id="watcher-interval" class="autodl-interval-select" onchange="saveWatcherSettings()" title="Auto-downloader check frequency">
                   <option value="15">15m</option>
                   <option value="30">30m</option>
@@ -783,48 +783,35 @@
                   <option value="0.5">30s (test)</option>
                 </select>
               </div>
-              <button type="button" class="btn-s btn-autodl-scan" id="btn-autodl-scan-all" onclick="triggerWatcherCheckNow()" title="Check all monitored anime for new releases now">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
-                <span>check all now</span>
+              <button type="button" class="btn-icon" id="btn-autodl-scan-all" onclick="triggerWatcherCheckNow()" title="Check all monitored anime for new releases now">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
               </button>
-              <button type="button" class="btn-s btn-autodl-master-pause" id="btn-autodl-master-pause" onclick="toggleWatcherMaster()" title="Pause or resume auto-downloader background checking">
-                <svg class="autodl-pause-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
-                <svg class="autodl-resume-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:none;"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                <span id="btn-autodl-master-text">pause</span>
-              </button>
+              <select id="autodl-filter-select" class="autodl-mode-select autodl-toolbar-select autodl-filter-mini" onchange="setAutoDlFilterMode(this.value)" title="Filter monitored anime">
+                <option value="all">all</option>
+                <option value="active">active</option>
+                <option value="paused">paused</option>
+                <option value="latest_only">future only</option>
+                <option value="all_missing">all missing</option>
+              </select>
             </div>
           </div>
 
-          <!-- Filter Controls & Crunchyroll Search -->
-          <div class="autodl-filter-section">
-            <div class="autodl-filter-chips">
-              <button type="button" class="catalog-filter-chip active" data-filter="all" onclick="setAutoDlFilterMode('all')">all</button>
-              <button type="button" class="catalog-filter-chip" data-filter="active" onclick="setAutoDlFilterMode('active')">active</button>
-              <button type="button" class="catalog-filter-chip" data-filter="paused" onclick="setAutoDlFilterMode('paused')">paused</button>
-              <button type="button" class="catalog-filter-chip" data-filter="latest_only" onclick="setAutoDlFilterMode('latest_only')">future only</button>
-              <button type="button" class="catalog-filter-chip" data-filter="all_missing" onclick="setAutoDlFilterMode('all_missing')">all missing</button>
-              <button type="button" class="btn-icon autodl-search-icon-btn" id="btn-toggle-autodl-search" onclick="toggleAutoDlSearch()" title="Search Crunchyroll to add anime">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-              </button>
-            </div>
-
-            <div class="autodl-search-wrapper" id="autodl-search-wrapper" style="display:none;">
-              <svg class="search-input-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-              <input type="text" id="autodl-search-input" placeholder="Search Crunchyroll by title (e.g. Solo Leveling) or paste series URL / ID..." autocomplete="off" spellcheck="false" oninput="onAutoDlSearchInput(this.value)" onkeydown="onAutoDlSearchKeydown(event)">
-              <button type="button" id="autodl-search-clear" class="search-clear-btn" onclick="clearAutoDlSearch()" style="display:none;">&times;</button>
-              <select id="autodl-search-mode" class="autodl-mode-select autodl-search-mode-select" title="Monitoring mode for added anime">
-                <option value="latest_only">Future Only</option>
-                <option value="all_missing">All Missing</option>
-              </select>
-              <button type="button" class="btn-s btn-pri btn-autodl-add" id="btn-autodl-search-add" onclick="submitAutoDlSearch()" style="display:none;">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                <span id="btn-autodl-search-text">monitor</span>
-              </button>
-              <button type="button" class="btn-icon btn-autodl-search-close" onclick="toggleAutoDlSearch(false)" title="Close search">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-              </button>
-              <div id="autodl-search-dropdown" class="autodl-search-dropdown" style="display:none;"></div>
-            </div>
+          <div class="autodl-search-wrapper" id="autodl-search-wrapper" style="display:none;">
+            <svg class="search-input-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" id="autodl-search-input" placeholder="Search Crunchyroll by title (e.g. Solo Leveling) or paste series URL / ID..." autocomplete="off" spellcheck="false" oninput="onAutoDlSearchInput(this.value)" onkeydown="onAutoDlSearchKeydown(event)">
+            <button type="button" id="autodl-search-clear" class="search-clear-btn" onclick="clearAutoDlSearch()" style="display:none;">&times;</button>
+            <select id="autodl-search-mode" class="autodl-mode-select autodl-search-mode-select" title="Monitoring mode for added anime">
+              <option value="latest_only">Future Only</option>
+              <option value="all_missing">All Missing</option>
+            </select>
+            <button type="button" class="btn-s btn-pri btn-autodl-add" id="btn-autodl-search-add" onclick="submitAutoDlSearch()" style="display:none;">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              <span id="btn-autodl-search-text">monitor</span>
+            </button>
+            <button type="button" class="btn-icon btn-autodl-search-close" onclick="toggleAutoDlSearch(false)" title="Close search">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+            <div id="autodl-search-dropdown" class="autodl-search-dropdown" style="display:none;"></div>
           </div>
 
           <!-- Empty State -->
@@ -944,6 +931,47 @@
       </div>
       <div class="modal-actions">
         <button type="button" class="btn-s" onclick="closeWatcherModal()">close</button>
+      </div>
+    </div>
+  </div>
+
+
+  <div id="series-settings-modal" class="modal-backdrop" style="display:none;" onclick="handleSeriesSettingsBackdropClick(event)">
+    <div class="modal-dialog modal-dialog-ss">
+      <div class="modal-header">
+        <div class="modal-pin-title-box">
+          <div class="modal-title" id="series-settings-title">Series settings</div>
+          <div class="modal-subtitle">Overrides for this anime only. Unset fields follow your dashboard defaults.</div>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="grid2">
+          <div class="field">
+            <label>audio language</label>
+            <div id="ss-audio" class="select-dropdown"></div>
+          </div>
+          <div class="field">
+            <label>subtitles</label>
+            <div id="ss-subs" class="select-dropdown"></div>
+          </div>
+          <div class="field">
+            <label>video quality</label>
+            <div id="ss-quality" class="select-dropdown"></div>
+          </div>
+          <div class="field">
+            <label>audio fallback</label>
+            <div id="ss-fallback" class="select-dropdown"></div>
+          </div>
+        </div>
+        <div class="field">
+          <label>download folder</label>
+          <input type="text" id="ss-dir" placeholder="default (global)">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-s" onclick="resetSeriesSettings()" title="Clear every override back to the global defaults">reset to global</button>
+        <button type="button" class="btn-s" onclick="closeSeriesSettings()">cancel</button>
+        <button type="button" class="btn-s" onclick="saveSeriesSettings()" style="border-color:rgba(255,255,255,0.85);">save</button>
       </div>
     </div>
   </div>

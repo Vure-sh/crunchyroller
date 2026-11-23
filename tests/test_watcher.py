@@ -253,3 +253,391 @@ class TestSeriesWatcher(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestWatcherAudioReadiness(unittest.TestCase):
+    """Issue #24: with audio fallback off, episodes not yet dubbed in the
+    requested language must stay pending instead of being skipped forever."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.store_file = os.path.join(self.temp_dir, "test_monitored.json")
+        self.store = MonitoredStore(self.store_file)
+
+        self.mock_queue = MagicMock()
+        self.mock_queue.enqueue_batch.return_value = ["job-1"]
+        self.mock_client = MagicMock()
+        self.mock_config = {
+            "audio_lang": "fr-FR",
+            "subs_lang": "en-US",
+            "video_quality": "1080p",
+            "audio_quality": "192k",
+            "download_dir": os.path.join(self.temp_dir, "no-such-dir"),
+            "workers": 16,
+            "audio_fallback": False,
+        }
+        self.watcher = SeriesWatcher(
+            queue=self.mock_queue,
+            client_factory=lambda: self.mock_client,
+            config_provider=lambda: self.mock_config,
+            store=self.store,
+        )
+
+    def tearDown(self):
+        try:
+            shutil.rmtree(self.temp_dir)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _ep(ep_id, locales):
+        from crunchyroll.types import DubVersion
+        versions = [
+            DubVersion(guid=f"g-{ep_id}-{loc}", media_guid="", season_guid="", audio_locale=loc, locale="")
+            for loc in locales
+        ]
+        return MagicMock(id=ep_id, episode_number=1, season_number=1,
+                         title=f"Ep {ep_id}", season_title="S1",
+                         audio_locale=locales[0] if locales else "",
+                         versions=versions)
+
+    @patch("crunchyroll.api.get_series")
+    def test_add_series_leaves_undubbed_episodes_pending(self, mock_get_series):
+        ep_ja = self._ep("EP-1", ["ja-JP"])
+        ep_fr = self._ep("EP-2", ["ja-JP", "fr-FR"])
+        mock_get_series.return_value = {"episodes": [ep_ja, ep_fr], "title": "Show", "poster": ""}
+
+        rec = self.watcher.add_series("SERIES-DUB", "Show", mode="latest_only")
+        self.assertEqual(rec["known_episodes"], ["EP-2"])
+
+    @patch("crunchyroll.api.get_series")
+    def test_undubbed_episode_is_retried_until_dub_arrives(self, mock_get_series):
+        ep_ja = self._ep("EP-1", ["ja-JP"])
+        mock_get_series.return_value = {"episodes": [ep_ja], "title": "Show", "poster": ""}
+
+        self.watcher.add_series("SERIES-DUB", "Show", mode="latest_only")
+        res = self.watcher.check_series("SERIES-DUB")
+        self.assertEqual(res["new_episodes"], 0)
+        self.mock_queue.enqueue_batch.assert_not_called()
+
+        # The episode must NOT have been swallowed into known_episodes
+        data = self.store.load()
+        self.assertNotIn("EP-1", data["series"]["SERIES-DUB"]["known_episodes"])
+
+        # Dub drops: the same episode is now queued
+        ep_dubbed = self._ep("EP-1", ["ja-JP", "fr-FR"])
+        mock_get_series.return_value = {"episodes": [ep_dubbed], "title": "Show", "poster": ""}
+        res = self.watcher.check_series("SERIES-DUB")
+        self.assertEqual(res["new_episodes"], 1)
+        self.mock_queue.enqueue_batch.assert_called_once()
+        data = self.store.load()
+        self.assertIn("EP-1", data["series"]["SERIES-DUB"]["known_episodes"])
+
+    @patch("crunchyroll.api.get_series")
+    def test_fallback_on_keeps_current_behavior(self, mock_get_series):
+        self.mock_config["audio_fallback"] = True
+        ep_ja = self._ep("EP-1", ["ja-JP"])
+        mock_get_series.return_value = {"episodes": [ep_ja], "title": "Show", "poster": ""}
+
+        rec = self.watcher.add_series("SERIES-FB", "Show", mode="latest_only")
+        self.assertEqual(rec["known_episodes"], ["EP-1"])
+
+    @patch("crunchyroll.api.get_series")
+    def test_all_missing_does_not_requeue_undubbed(self, mock_get_series):
+        ep_ja = self._ep("EP-1", ["ja-JP"])
+        mock_get_series.return_value = {"episodes": [ep_ja], "title": "Show", "poster": ""}
+
+        self.watcher.add_series("SERIES-AM", "Show", mode="all_missing")
+        res = self.watcher.check_series("SERIES-AM")
+        self.assertEqual(res["new_episodes"], 0)
+        self.mock_queue.enqueue_batch.assert_not_called()
+
+        # Once dubbed, all_missing queues it
+        ep_dubbed = self._ep("EP-1", ["ja-JP", "fr-FR"])
+        mock_get_series.return_value = {"episodes": [ep_dubbed], "title": "Show", "poster": ""}
+        res = self.watcher.check_series("SERIES-AM")
+        self.assertEqual(res["new_episodes"], 1)
+
+
+class TestWatcherAudioReadinessEdgeCases(unittest.TestCase):
+    """PR #25 review follow-ups: empty versions must trigger the detail
+    lookup, and a failed lookup must leave the episode pending."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.store_file = os.path.join(self.temp_dir, "test_monitored.json")
+        self.store = MonitoredStore(self.store_file)
+
+        self.mock_queue = MagicMock()
+        self.mock_queue.enqueue_batch.return_value = ["job-1"]
+        self.mock_client = MagicMock()
+        self.mock_config = {
+            "audio_lang": "fr-FR",
+            "subs_lang": "en-US",
+            "video_quality": "1080p",
+            "audio_quality": "192k",
+            "download_dir": os.path.join(self.temp_dir, "no-such-dir"),
+            "workers": 16,
+            "audio_fallback": False,
+        }
+        self.watcher = SeriesWatcher(
+            queue=self.mock_queue,
+            client_factory=lambda: self.mock_client,
+            config_provider=lambda: self.mock_config,
+            store=self.store,
+        )
+
+    def tearDown(self):
+        try:
+            shutil.rmtree(self.temp_dir)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _detail_info(locales):
+        from crunchyroll.types import DubVersion, EpisodeInfo, EpisodeMetadata
+        versions = [
+            DubVersion(guid=f"g-{loc}", media_guid="", season_guid="", audio_locale=loc, locale="")
+            for loc in locales
+        ]
+        meta = EpisodeMetadata(
+            audio_locale=locales[0] if locales else "",
+            episode_number=5, season_number=1, series_title="Show",
+            availability_starts="", versions=versions, season_title="S1",
+        )
+        return EpisodeInfo(episode_metadata=meta, title="Ep 5", subtitles={})
+
+    @patch("crunchyroll.api.get_episode_info")
+    @patch("crunchyroll.api.get_series")
+    def test_empty_versions_in_listing_trigger_detail_lookup(self, mock_get_series, mock_info):
+        # Listing carries a base audio_locale but NO versions array; the
+        # detailed endpoint knows the French dub is actually available.
+        ep = MagicMock(id="EP-9", episode_number=9, season_number=1, title="Ep 9",
+                       season_title="S1", audio_locale="ja-JP", versions=[])
+        mock_get_series.return_value = {"episodes": [ep], "title": "Show", "poster": ""}
+        mock_info.return_value = self._detail_info(["ja-JP"])
+
+        rec = self.watcher.add_series("SERIES-DETAIL", "Show", mode="latest_only")
+        mock_info.assert_called()
+        self.assertEqual(rec["known_episodes"], [])
+
+        # The dub drops: the detail endpoint now lists fr-FR, and the same
+        # listing (still without versions) must be re-checked in depth.
+        mock_info.return_value = self._detail_info(["ja-JP", "fr-FR"])
+        res = self.watcher.check_series("SERIES-DETAIL")
+        self.assertEqual(res["new_episodes"], 1)
+        self.mock_queue.enqueue_batch.assert_called_once()
+
+    @patch("crunchyroll.api.get_episode_info")
+    @patch("crunchyroll.api.get_series")
+    def test_failed_detail_lookup_keeps_episode_pending(self, mock_get_series, mock_info):
+        # No versions anywhere in the listing; the detail lookup times out.
+        # The episode must stay pending and be retried, not marked known.
+        ep = MagicMock(id="EP-7", episode_number=7, season_number=1, title="Ep 7",
+                       season_title="S1", audio_locale="", versions=[])
+        mock_get_series.return_value = {"episodes": [ep], "title": "Show", "poster": ""}
+        mock_info.side_effect = RuntimeError("timeout")
+
+        rec = self.watcher.add_series("SERIES-FLAKY", "Show", mode="latest_only")
+        self.assertEqual(rec["known_episodes"], [])
+
+        res = self.watcher.check_series("SERIES-FLAKY")
+        self.assertEqual(res["new_episodes"], 0)
+        self.mock_queue.enqueue_batch.assert_not_called()
+        data = self.store.load()
+        self.assertNotIn("EP-7", data["series"]["SERIES-FLAKY"]["known_episodes"])
+
+        # The API recovers on a later pass: the dub is found and queued.
+        mock_info.side_effect = None
+        mock_info.return_value = self._detail_info(["ja-JP", "fr-FR"])
+        res = self.watcher.check_series("SERIES-FLAKY")
+        self.assertEqual(res["new_episodes"], 1)
+        self.mock_queue.enqueue_batch.assert_called_once()
+
+
+    @patch("crunchyroll.api.get_episode_info")
+    @patch("crunchyroll.api.get_series")
+    def test_empty_detail_response_keeps_episode_pending(self, mock_get_series, mock_info):
+        # The detail endpoint answers successfully but with no usable audio
+        # metadata at all: the episode is unverified and must stay pending.
+        ep = MagicMock(id="EP-4", episode_number=4, season_number=1, title="Ep 4",
+                       season_title="S1", audio_locale="", versions=[])
+        mock_get_series.return_value = {"episodes": [ep], "title": "Show", "poster": ""}
+        mock_info.return_value = self._detail_info([])
+
+        rec = self.watcher.add_series("SERIES-EMPTY", "Show", mode="latest_only")
+        self.assertEqual(rec["known_episodes"], [])
+
+        res = self.watcher.check_series("SERIES-EMPTY")
+        self.assertEqual(res["new_episodes"], 0)
+        self.mock_queue.enqueue_batch.assert_not_called()
+        data = self.store.load()
+        self.assertNotIn("EP-4", data["series"]["SERIES-EMPTY"]["known_episodes"])
+
+        # Once real metadata shows the dub, it is picked up.
+        mock_info.return_value = self._detail_info(["ja-JP", "fr-FR"])
+        res = self.watcher.check_series("SERIES-EMPTY")
+        self.assertEqual(res["new_episodes"], 1)
+        self.mock_queue.enqueue_batch.assert_called_once()
+
+
+class TestPerSeriesOverrides(unittest.TestCase):
+    """Per-series watch settings: overrides apply to one series only and
+    fall back to the global config when cleared."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.store_file = os.path.join(self.temp_dir, "test_monitored.json")
+        self.store = MonitoredStore(self.store_file)
+
+        self.mock_queue = MagicMock()
+        self.mock_queue.enqueue_batch.return_value = ["job-1"]
+        self.mock_client = MagicMock()
+        self.mock_config = {
+            "audio_lang": "ja-JP",
+            "subs_lang": "en-US",
+            "video_quality": "1080p",
+            "audio_quality": "192k",
+            "download_dir": os.path.join(self.temp_dir, "no-such-dir"),
+            "workers": 16,
+            "audio_fallback": True,  # global default: fallback ON
+        }
+        self.watcher = SeriesWatcher(
+            queue=self.mock_queue,
+            client_factory=lambda: self.mock_client,
+            config_provider=lambda: self.mock_config,
+            store=self.store,
+        )
+
+    def tearDown(self):
+        try:
+            shutil.rmtree(self.temp_dir)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _ep(ep_id, locales, number=1):
+        from crunchyroll.types import DubVersion
+        versions = [
+            DubVersion(guid=f"g-{ep_id}-{loc}", media_guid="", season_guid="", audio_locale=loc, locale="")
+            for loc in locales
+        ]
+        return MagicMock(id=ep_id, episode_number=number, season_number=1,
+                         title=f"Ep {ep_id}", season_title="S1",
+                         audio_locale=locales[0] if locales else "",
+                         versions=versions)
+
+    @patch("crunchyroll.api.get_series")
+    def test_update_series_sets_and_clears_overrides(self, mock_get_series):
+        mock_get_series.return_value = {"episodes": [], "title": "Show", "poster": ""}
+        self.watcher.add_series("SERIES-CFG", "Show", mode="latest_only")
+
+        rec = self.watcher.update_series("SERIES-CFG", {
+            "audio_lang": "fr-FR", "subs_lang": "ar-SA",
+            "video_quality": "720p", "audio_fallback": False,
+        })
+        self.assertEqual(rec["audio_lang"], "fr-FR")
+        self.assertEqual(rec["subs_lang"], "ar-SA")
+        self.assertEqual(rec["video_quality"], "720p")
+        self.assertIs(rec["audio_fallback"], False)
+
+        # Persisted, not just in memory
+        reloaded = self.store.load()["series"]["SERIES-CFG"]
+        self.assertEqual(reloaded["audio_lang"], "fr-FR")
+        self.assertIs(reloaded["audio_fallback"], False)
+
+        # Clearing returns to None -> inherit global defaults
+        rec = self.watcher.update_series("SERIES-CFG", {
+            "audio_lang": None, "subs_lang": "", "video_quality": None,
+            "download_dir": "", "audio_fallback": None,
+        })
+        self.assertIsNone(rec["audio_lang"])
+        self.assertIsNone(rec["subs_lang"])
+        self.assertIsNone(rec["video_quality"])
+        self.assertIsNone(rec["audio_fallback"])
+
+        # Unknown series -> None
+        self.assertIsNone(self.watcher.update_series("NOPE", {"audio_lang": "fr-FR"}))
+
+    @patch("crunchyroll.api.get_series")
+    def test_per_series_audio_fallback_overrides_global(self, mock_get_series):
+        # Global fallback is ON, but this series turns it OFF and wants fr-FR:
+        # a Japanese-only episode must stay pending for this series.
+        ep_ja = self._ep("EP-1", ["ja-JP"])
+        mock_get_series.return_value = {"episodes": [ep_ja], "title": "Show", "poster": ""}
+
+        self.watcher.add_series("SERIES-STRICT", "Show", mode="latest_only")
+        self.watcher.update_series("SERIES-STRICT", {"audio_lang": "fr-FR", "audio_fallback": False})
+
+        res = self.watcher.check_series("SERIES-STRICT")
+        self.assertEqual(res["new_episodes"], 0)
+        self.mock_queue.enqueue_batch.assert_not_called()
+
+        # A second series WITHOUT the override still uses the global fallback
+        # and downloads the same Japanese-only episode right away.
+        self.mock_queue.enqueue_batch.return_value = ["job-2"]
+        self.watcher.add_series("SERIES-LENIENT", "Show2", mode="latest_only")
+        data = self.store.load()
+        data["series"]["SERIES-LENIENT"]["known_episodes"] = []
+        self.store.save(data)
+        res = self.watcher.check_series("SERIES-LENIENT")
+        self.assertEqual(res["new_episodes"], 1)
+
+    @patch("crunchyroll.api.get_series")
+    def test_mode_change_preserves_per_series_overrides(self, mock_get_series):
+        # Regression: switching monitoring mode re-calls add_series without
+        # overrides; the per-series settings must survive the rebuild.
+        mock_get_series.return_value = {"episodes": [], "title": "Show", "poster": ""}
+        self.watcher.add_series("SERIES-MODE", "Show", mode="latest_only")
+        self.watcher.update_series("SERIES-MODE", {
+            "audio_lang": "fr-FR", "subs_lang": "ar-SA",
+            "video_quality": "720p", "download_dir": "custom-dir",
+            "audio_fallback": False,
+        })
+
+        # Mode change only (what the UI's /api/watcher/monitor call sends)
+        rec = self.watcher.add_series("SERIES-MODE", "Show", mode="all_missing")
+        self.assertEqual(rec["mode"], "all_missing")
+        self.assertEqual(rec["audio_lang"], "fr-FR")
+        self.assertEqual(rec["subs_lang"], "ar-SA")
+        self.assertEqual(rec["video_quality"], "720p")
+        self.assertEqual(rec["download_dir"], "custom-dir")
+        self.assertIs(rec["audio_fallback"], False)
+
+        # Persisted, not just in memory
+        reloaded = self.store.load()["series"]["SERIES-MODE"]
+        self.assertEqual(reloaded["audio_lang"], "fr-FR")
+        self.assertEqual(reloaded["download_dir"], "custom-dir")
+
+        # An explicit value passed with the re-add still wins over the old one
+        rec = self.watcher.add_series("SERIES-MODE", "Show", mode="all_missing",
+                                      audio_lang="en-US")
+        self.assertEqual(rec["audio_lang"], "en-US")
+
+    @patch("crunchyroll.api.get_series")
+    def test_future_only_init_uses_series_overrides(self, mock_get_series):
+        # Regression: switching All Missing -> Future Only must initialize
+        # known_episodes with the series' own overrides, not the global
+        # settings, or a late dub is missed forever.
+        ep_ja = self._ep("EP-1", ["ja-JP"])
+        mock_get_series.return_value = {"episodes": [ep_ja], "title": "Show", "poster": ""}
+        self.watcher.add_series("SERIES-FO", "Show", mode="all_missing")
+        self.watcher.update_series("SERIES-FO", {"audio_lang": "fr-FR", "audio_fallback": False})
+
+        # UI mode change: no override args passed
+        rec = self.watcher.add_series("SERIES-FO", "Show", mode="latest_only")
+        self.assertEqual(rec["mode"], "latest_only")
+        # Japanese-only episode must stay pending: the fr-FR dub is not out
+        self.assertEqual(rec["known_episodes"], [])
+        # and once the fr dub exists it is marked known
+        ep_dub = self._ep("EP-1", ["ja-JP", "fr-FR"])
+        mock_get_series.return_value = {"episodes": [ep_dub], "title": "Show", "poster": ""}
+        rec = self.watcher.add_series("SERIES-FO", "Show", mode="all_missing")
+        rec = self.watcher.add_series("SERIES-FO", "Show", mode="latest_only")
+        self.assertEqual(rec["known_episodes"], ["EP-1"])
+
+        # Control: a series WITHOUT overrides still uses the global
+        # ja-JP + fallback-ON and marks the same episode known right away
+        mock_get_series.return_value = {"episodes": [ep_ja], "title": "Show2", "poster": ""}
+        rec = self.watcher.add_series("SERIES-CTRL", "Show2", mode="latest_only")
+        self.assertEqual(rec["known_episodes"], ["EP-1"])

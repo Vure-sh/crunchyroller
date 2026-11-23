@@ -26,6 +26,67 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+
+def _episode_audio_locales(ep: Any) -> set:
+    """Collect the audio locales an episode is available in (best effort)."""
+
+    def _field(obj: Any, key: str) -> str:
+        val = obj.get(key) if isinstance(obj, dict) else getattr(obj, key, "")
+        return val if isinstance(val, str) else ""
+
+    locales = set()
+    base = _field(ep, "audio_locale").strip().lower()
+    if base:
+        locales.add(base)
+    versions = ep.get("versions") if isinstance(ep, dict) else getattr(ep, "versions", None)
+    if isinstance(versions, (list, tuple)):
+        for v in versions:
+            loc = _field(v, "audio_locale").strip().lower()
+            if loc:
+                locales.add(loc)
+    return locales
+
+
+def _audio_ready(client: Any, ep: Any, ep_id: str, audio_langs: List[str], audio_fallback: bool) -> bool:
+    """Return whether an episode can be downloaded in the requested audio right now.
+
+    With audio fallback enabled, or when every track is requested, any episode
+    counts as ready (the existing behavior). Otherwise the episode only counts
+    once its dub versions cover at least one requested language - the exact
+    condition under which the downloader would NOT skip it - so an episode that
+    only aired in the original audio stays pending until its dub is released.
+    """
+    if audio_fallback:
+        return True
+    wanted = [str(lang).strip().lower() for lang in audio_langs if str(lang).strip()]
+    if not wanted or any(lang in ("all", "*") for lang in wanted):
+        return True
+    versions = ep.get("versions") if isinstance(ep, dict) else getattr(ep, "versions", None)
+    has_versions = isinstance(versions, (list, tuple)) and len(versions) > 0
+    if not has_versions:
+        # The season listing carried no dub versions; ask the object endpoint.
+        # The base audio_locale alone cannot be trusted here - it would hide
+        # dubs that only the detailed metadata knows about.
+        if client is None or not ep_id:
+            return True  # nothing to verify with; never hit on live paths
+        try:
+            from crunchyroll.api import get_episode_info
+            info = get_episode_info(client, ep_id)
+            ep = info.episode_metadata
+        except Exception as e:
+            # Keep the episode pending and retry next pass. Returning ready
+            # here would mark an unverified episode as known and lose it.
+            logger.info("Could not verify audio versions for episode %s (%s); leaving it pending", ep_id, e)
+            return False
+    locales = _episode_audio_locales(ep)
+    if not locales:
+        # Even the detailed metadata carried no usable audio info, so the
+        # episode is unverified - keep it pending and retry next pass rather
+        # than marking it known.
+        return False
+    return any(lang in locales for lang in wanted)
+
+
 class MonitoredStore:
     """Thread-safe persistent storage for monitored series and auto-downloader events."""
 
@@ -192,6 +253,7 @@ class SeriesWatcher:
         subs_lang: Optional[str] = None,
         video_quality: Optional[str] = None,
         download_dir: Optional[str] = None,
+        audio_fallback: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """Add or update a series in the monitored watchlist."""
         clean_id = (series_id or "").strip()
@@ -243,13 +305,33 @@ class SeriesWatcher:
                     if client:
                         from crunchyroll.api import get_series
                         cfg = self.config_provider()
-                        al = audio_lang or cfg.get("audio_lang", "ja-JP")
-                        sl = subs_lang or cfg.get("subs_lang", "en-US")
+                        # Effective settings: explicit argument, then the
+                        # series' own overrides, then the global defaults.
+                        # Using the globals here when a mode change
+                        # re-initializes known_episodes would mark episodes
+                        # known in a language the series is still waiting for.
+                        eff_audio = audio_lang if audio_lang is not None else (existing.get("audio_lang") if existing else None)
+                        eff_subs = subs_lang if subs_lang is not None else (existing.get("subs_lang") if existing else None)
+                        al = eff_audio or cfg.get("audio_lang", "ja-JP")
+                        sl = eff_subs or cfg.get("subs_lang", "en-US")
                         s_meta = get_series(client, clean_id, al, sl)
                         if s_meta:
                             if mode == "latest_only" and (not existing or is_switching_to_latest or not known_eps):
                                 eps = s_meta.get("episodes", [])
-                                known_eps = [str(getattr(e, "id", "") or e.get("id", "")) for e in eps if getattr(e, "id", None) or (isinstance(e, dict) and e.get("id"))]
+                                eff_fallback = audio_fallback if audio_fallback is not None else (existing.get("audio_fallback") if existing else None)
+                                fallback_on = bool(eff_fallback) if eff_fallback is not None else bool(cfg.get("audio_fallback", True))
+                                try:
+                                    from crunchyroll.queue import normalize_langs
+                                    wanted_audio = normalize_langs(al)
+                                except Exception:
+                                    wanted_audio = [al] if al else []
+                                # Episodes not yet out in the requested audio stay pending:
+                                # they are picked up by the next checks once the dub drops.
+                                known_eps = []
+                                for e in eps:
+                                    eid = str(getattr(e, "id", "") or (e.get("id") if isinstance(e, dict) else "")).strip()
+                                    if eid and _audio_ready(client, e, eid, wanted_audio, fallback_on):
+                                        known_eps.append(eid)
                             if not clean_title or clean_title == clean_id:
                                 clean_title = s_meta.get("title") or clean_title
                             if not clean_poster:
@@ -267,10 +349,14 @@ class SeriesWatcher:
                 "url": final_url,
                 "poster": final_poster,
                 "mode": mode or (existing.get("mode") if existing else "latest_only"),
-                "audio_lang": audio_lang,
-                "subs_lang": subs_lang,
-                "video_quality": video_quality,
-                "download_dir": download_dir,
+                # Re-adding (e.g. a mode change from the UI) passes no
+                # overrides; keep the existing per-series settings in that
+                # case instead of silently resetting them to the defaults.
+                "audio_lang": audio_lang if audio_lang is not None else (existing.get("audio_lang") if existing else None),
+                "subs_lang": subs_lang if subs_lang is not None else (existing.get("subs_lang") if existing else None),
+                "video_quality": video_quality if video_quality is not None else (existing.get("video_quality") if existing else None),
+                "download_dir": download_dir if download_dir is not None else (existing.get("download_dir") if existing else None),
+                "audio_fallback": audio_fallback if audio_fallback is not None else (existing.get("audio_fallback") if existing else None),
                 "known_episodes": known_eps,
                 "downloaded_episodes": downloaded_eps,
                 "last_checked": existing.get("last_checked", "") if existing else "",
@@ -314,6 +400,45 @@ class SeriesWatcher:
                 self.store.save(data)
                 return new_st
             return None
+
+    SERIES_OVERRIDABLE_KEYS = ("audio_lang", "subs_lang", "video_quality", "download_dir", "audio_fallback")
+
+    def update_series(self, series_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Update per-series overrides for one monitored series.
+
+        Passing None or an empty string for an override clears it, so the
+        series falls back to the global default again. Unknown keys are
+        ignored. Returns the updated record, or None when not monitored.
+        """
+        clean_id = (series_id or "").strip()
+        if not clean_id:
+            return None
+        with self._lock:
+            data = self.store.load()
+            series_map = data.get("series", {})
+            if clean_id not in series_map:
+                return None
+            item = series_map[clean_id]
+
+            if "mode" in updates and updates["mode"] in ("latest_only", "all_missing"):
+                item["mode"] = updates["mode"]
+
+            for key in self.SERIES_OVERRIDABLE_KEYS:
+                if key not in updates:
+                    continue
+                val = updates[key]
+                if key == "audio_fallback":
+                    item[key] = None if val is None else bool(val)
+                    continue
+                text = str(val).strip() if val is not None else ""
+                item[key] = text or None
+
+            series_map[clean_id] = item
+            data["series"] = series_map
+            self.store.save(data)
+            logger.info("Updated per-series settings for %s: %s", clean_id,
+                        {k: updates[k] for k in updates if k in self.SERIES_OVERRIDABLE_KEYS or k == "mode"})
+            return item
 
     def update_settings(self, updates: Dict[str, Any]) -> Dict[str, Any]:
         """Update auto-downloader operational settings."""
@@ -468,8 +593,17 @@ class SeriesWatcher:
 
         from crunchyroll.utils import is_episode_on_disk
 
+        series_fb = item.get("audio_fallback")
+        fallback_on = bool(series_fb) if series_fb is not None else bool(cfg.get("audio_fallback", True))
+        try:
+            from crunchyroll.queue import normalize_langs
+            wanted_audio = normalize_langs(al)
+        except Exception:
+            wanted_audio = [al] if al else []
+
         known_set = set(item.get("known_episodes", []))
         downloaded_set = set(item.get("downloaded_episodes", []))
+        pending_audio = set()  # episodes not yet dubbed in the requested language(s)
 
         # Check if the download directory exists (e.g. external drive connected)
         disk_available = os.path.isdir(os.path.abspath(os.path.expanduser((dl_dir or ".").strip())))
@@ -498,6 +632,14 @@ class SeriesWatcher:
                             is_queued_or_active = True
                 except Exception:
                     pass
+
+            # With audio fallback off, an episode only counts as handled once it
+            # exists in a requested audio language; until then it stays pending
+            # (neither queued nor marked known) so a late dub is picked up.
+            if not _audio_ready(client, ep, ep_id, wanted_audio, fallback_on):
+                pending_audio.add(ep_id)
+                known_set.discard(ep_id)  # heal state recorded before this fix
+                continue
 
             if disk_available:
                 on_disk = is_episode_on_disk(
@@ -543,10 +685,11 @@ class SeriesWatcher:
                             "episode_number": ep_num,
                         })
 
-        # Update known_set with all current episodes
+        # Update known_set with all current episodes that are audio-ready;
+        # episodes still waiting on a dub stay pending for the next pass.
         for ep in all_eps:
             eid = str(getattr(ep, "id", "") or (ep.get("id") if isinstance(ep, dict) else "")).strip()
-            if eid:
+            if eid and eid not in pending_audio:
                 known_set.add(eid)
 
         events: List[Dict[str, Any]] = []
@@ -564,7 +707,7 @@ class SeriesWatcher:
                 "enable_hedging": cfg.get("enable_hedging", False),
                 "enable_resume": cfg.get("enable_resume", True),
                 "bitrate_mode": cfg.get("bitrate_mode", "highest"),
-                "audio_fallback": cfg.get("audio_fallback", True),
+                "audio_fallback": fallback_on,
             }
 
             logger.info("[watcher] Detected %d new episode(s) for '%s'!", len(to_download), title)
