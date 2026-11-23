@@ -13,12 +13,12 @@ Multi-track audio, soft subs, skip chapters, auto decryption, one clean MKV.
 
 </div>
 
-## ⚡ Features
+## ✨ Features
 
 - 💻 **Web GUI, desktop window, or CLI** - same app, your pick
 - 📥 **Auto-Downloader** with per-series settings (audio, subs, quality, folder)
 - 🎧 **All dubs and soft subs in one MKV**, with skip chapters for Intro/Outro
-- ⏸️ **Queue with pause/resume**, batch whole seasons or series
+- 🔁 **Queue with pause/resume**, batch whole seasons or series
 - 📺 **Plex/Jellyfin-ready naming** out of the box
 
 ## 📥 Auto-Downloader
@@ -29,7 +29,7 @@ Add an anime and new episodes download themselves. Each show gets its own mode (
 <img width="49%" alt="Auto-Downloader tab" src="readme-assets/readme-autodl.png" /> <img width="49%" alt="Per-series settings" src="readme-assets/readme-series-settings.png" />
 </div>
 
-## ▶️ Quick Start
+## 🚀 Quick Start
 
 **Windows:** grab the [latest release](https://github.com/Vure-sh/crunchyroller/releases/latest), drop your Widevine keys (`*.wvd`, or `client_id.bin` + `private_key.pem`) next to the exe, run it.
 
@@ -41,7 +41,7 @@ pip install -r requirements.txt
 python main.py --gui       # or --browser
 ```
 
-## ⌨️ CLI
+## 📜 CLI
 
 ```bash
 python main.py "<url>" --video-quality 1080p --audio-lang "ja-JP,en-US" --subs-lang "en-US"
