@@ -1,7 +1,6 @@
 services:
   crunchyroller:
     build: .
-    image: crunchyroller
     container_name: crunchyroller
     restart: unless-stopped
     # Host user that owns ./data and the downloads folder.
