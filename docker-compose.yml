@@ -14,3 +14,18 @@ services:
     ports:
       # The web UI has no login: localhost only unless BIND_IP is set.
       - "${BIND_IP:-127.0.0.1}:8000:8000"
+    # --- Traefik example: uncomment, add the domain to ALLOWED_ORIGINS, and keep basic auth (the UI has no login) ---
+    # networks: [traefik]
+    # labels:
+    #   - traefik.enable=true
+    #   - traefik.http.routers.crunchyroller.rule=Host(`crunchy.example.org`)
+    #   - traefik.http.routers.crunchyroller.entrypoints=websecure
+    #   - traefik.http.routers.crunchyroller.tls=true
+    #   - traefik.http.routers.crunchyroller.middlewares=crunchyroller-auth
+    #   # htpasswd -nbB user password  (double every $ in compose files)
+    #   - traefik.http.middlewares.crunchyroller-auth.basicauth.users=user:$$2y$$05$$replace-me
+    #   - traefik.http.services.crunchyroller.loadbalancer.server.port=8000
+
+# networks:
+#   traefik:
+#     external: true
