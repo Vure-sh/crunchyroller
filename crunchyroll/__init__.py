@@ -1,7 +1,7 @@
 """crunchyroll downloader logic"""
 import sys
 
-__version__ = "3.9.0"
+__version__ = "3.9.1"
 
 class _SafeStream:
     def __init__(self, target):

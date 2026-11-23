@@ -1,3 +1,12 @@
+## What's Changed in v3.9.1
+
+- **Late-Dub Retry in Auto-Downloader (#24)**: Episodes airing initially without dubs (when audio fallback is off) now stay pending rather than getting swallowed into `known_episodes`, automatically downloading when dub versions drop. Automatically heals previously skipped series.
+- **Per-Series Auto-DL Overrides**: Each monitored anime card features a dedicated settings gear to customize audio language, subtitles, video quality, download folder, and audio fallback specifically for that show. Cards show a `CUSTOM` badge when overrides are active.
+- **Python 3.10 & 3.11 Compatibility**: Extracted nested f-string expressions in skip messages to eliminate `SyntaxError` on Python <3.12.
+- **UI Contrast AA Compliance (#23)**: Raised text contrast from low-contrast `#555` to `#8f8f8f` (WCAG AA) and adjusted secondary font sizes across the dashboard for clearer readability while preserving the monochrome aesthetic.
+- **Auto-DL Streamlined Toolbar & Accessibility**: Replaced double header rows with a streamlined toolbar featuring a keyboard-accessible pause/resume status button, quick-check button, compact filter dropdown, and direct add anime workflow.
+- **Downloader Audio Locale Matching**: Added base audio locale resolution for episodes with limited metadata to prevent spurious `AudioUnavailableError` exceptions.
+
 ## What's Changed in v3.9.0
 
 - **Auto-Downloader & Watcher Tab**: Added a dedicated `auto-dl` tab to monitor ongoing series and automatically grab new episodes on a configurable interval (`15m` to `24h`, plus a `30s` test mode).
