@@ -5412,9 +5412,7 @@ function syncAllMonitoredCards() {
           const metaEl = card.querySelector('.autodl-card-meta');
           if (metaEl) {
             const metaHtml = `
-              <span>${lastCheck}</span>
-              <span>Known: ${knownCount} eps • Downloaded: ${dlCount} eps</span>
-              ${lastEp ? `<span title="${lastEp}">${lastEp}</span>` : ''}
+              <span${lastEp ? ` title="${lastEp}"` : ''}>${lastCheck} • ${dlCount}/${knownCount} eps${lastEp ? ` • ${lastEp}` : ''}</span>
             `;
             if (metaEl.innerHTML.replace(/\s+/g, ' ') !== metaHtml.replace(/\s+/g, ' ')) {
               metaEl.innerHTML = metaHtml;
@@ -5915,9 +5913,7 @@ function renderAutoDlTab() {
               ${isPaused ? '<span class="res-badge res-badge-paused" style="font-size:0.58rem;padding:1px 5px;flex-shrink:0;">PAUSED</span>' : ''}
             </div>
             <div class="autodl-card-meta">
-              <span>${lastCheck}</span>
-              <span>Known: ${knownCount} eps • Downloaded: ${dlCount} eps</span>
-              ${lastEp ? `<span title="${lastEp}">${lastEp}</span>` : ''}
+              <span${lastEp ? ` title="${lastEp}"` : ''}>${lastCheck} • ${dlCount}/${knownCount} eps${lastEp ? ` • ${lastEp}` : ''}</span>
             </div>
           </div>
           <div class="autodl-card-actions">
@@ -5928,6 +5924,9 @@ function renderAutoDlTab() {
               </select>
               <svg class="autodl-pill-arrow" width="8" height="5" viewBox="0 0 10 6" fill="none"><path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </div>
+            <button type="button" class="btn-icon btn-autodl-card-settings" onclick="openSeriesSettings('${escapeHtml(sid)}')" title="Settings for this anime (audio, subtitles, quality, folder)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82.33l.06.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            </button>
             <div class="autodl-card-btn-group">
               <button type="button" class="btn-icon btn-autodl-check" onclick="checkSingleMonitoredSeries('${escapeHtml(sid)}')" title="Check for new episodes now">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>

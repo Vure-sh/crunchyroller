@@ -4853,3 +4853,54 @@ textarea.multi-url-input::placeholder {
   border-radius: 4px;
   letter-spacing: 0.08em;
 }
+
+
+/* auto-dl declutter: compact toolbar select */
+.autodl-toolbar-select {
+  font-size: 0.68rem;
+  padding: 4px 22px 4px 8px;
+  height: 26px;
+  border-radius: 6px;
+}
+.autodl-filter-mini {
+  font-size: 0.62rem !important;
+  padding: 0 18px 0 7px !important;
+  height: 22px !important;
+  line-height: 20px !important;
+  min-width: 0 !important;
+  width: auto !important;
+  opacity: 0.85;
+}
+.autodl-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.autodl-card-meta span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* per-card settings gear: slightly larger, always visible */
+.btn-autodl-card-settings {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  color: var(--text-dim, #9aa);
+  opacity: 0.9;
+  flex-shrink: 0;
+}
+.btn-autodl-card-settings:hover {
+  color: var(--text, #eee);
+  background: rgba(255,255,255,0.08);
+  opacity: 1;
+}
+.autodl-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
