@@ -62,8 +62,8 @@ class StateStore:
         if state_path:
             self.state_path = os.path.abspath(state_path)
         else:
-            from .auth import _PROJECT_ROOT
-            self.state_path = os.path.join(_PROJECT_ROOT, "queue_state.json")
+            from .auth import DATA_DIR
+            self.state_path = os.path.join(DATA_DIR, "queue_state.json")
 
         self.debounce_s = max(0.05, float(debounce_s))
         self._lock = threading.Lock()
