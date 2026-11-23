@@ -4624,7 +4624,6 @@ function updateWatcherState(wState) {
   }
 
   // Update master toggle button and interval select
-  updateWatcherMasterButton();
   const intervalSelect = document.getElementById('watcher-interval');
   if (intervalSelect && wState.interval_minutes !== undefined && document.activeElement !== intervalSelect) {
     const intStr = String(wState.interval_minutes);
@@ -5174,28 +5173,6 @@ async function removeMonitoredSeries(sid) {
   }
 }
 
-function updateWatcherMasterButton() {
-  const btn = document.getElementById('btn-autodl-master-pause');
-  const txt = document.getElementById('btn-autodl-master-text');
-  if (!btn || !txt) return;
-  const isEnabled = watcherState.enabled !== false;
-  const pauseIcon = btn.querySelector('.autodl-pause-icon');
-  const resumeIcon = btn.querySelector('.autodl-resume-icon');
-
-  if (isEnabled) {
-    btn.classList.remove('paused');
-    txt.textContent = 'pause';
-    btn.title = 'Pause auto-downloader background checking';
-    if (pauseIcon) pauseIcon.style.display = 'inline-block';
-    if (resumeIcon) resumeIcon.style.display = 'none';
-  } else {
-    btn.classList.add('paused');
-    txt.textContent = 'resume';
-    btn.title = 'Resume auto-downloader background checking';
-    if (pauseIcon) pauseIcon.style.display = 'none';
-    if (resumeIcon) resumeIcon.style.display = 'inline-block';
-  }
-}
 
 async function toggleWatcherMaster() {
   const newEnabled = !(watcherState.enabled !== false);
@@ -5208,8 +5185,7 @@ async function toggleWatcherMaster() {
     if (res && res.success) {
       watcherState = { ...watcherState, ...(res.settings || {}) };
       toast(newEnabled ? 'Auto-downloader resumed' : 'Auto-downloader paused', 'ok');
-      updateWatcherMasterButton();
-      syncAllMonitoredCards();
+          syncAllMonitoredCards();
     }
   } catch (err) {
     toast('Failed to toggle auto-downloader: ' + err.message, 'err');
@@ -5228,8 +5204,7 @@ async function saveWatcherSettings() {
     if (res && res.success) {
       toast('Auto-downloader interval saved', 'ok');
       watcherState = { ...watcherState, ...(res.settings || {}) };
-      updateWatcherMasterButton();
-      syncAllMonitoredCards();
+          syncAllMonitoredCards();
     }
   } catch (err) {
     toast('Failed to save watcher settings: ' + err.message, 'err');
@@ -5351,8 +5326,8 @@ function syncAllMonitoredCards() {
         existingIds.some((id, idx) => id !== filteredIds[idx]);
 
       if (hasStructureChanged) {
-        const activeTag = document.activeElement ? document.activeElement.tagName : '';
-        const isInteracting = gridEl.contains(document.activeElement) && (activeTag === 'SELECT' || activeTag === 'INPUT');
+        const isInteracting = gridEl.contains(document.activeElement) &&
+          document.activeElement.classList.contains('autodl-card-mode-select');
         if (!isInteracting) {
           renderAutoDlTab();
         }
@@ -5390,6 +5365,12 @@ function syncAllMonitoredCards() {
               headerLine.appendChild(span);
             } else if (!isPaused && pausedBadge) {
               pausedBadge.remove();
+            }
+            const customBadge = headerLine.querySelector('.res-badge-custom');
+            if (seriesHasOverrides(s) && !customBadge) {
+              headerLine.insertAdjacentHTML('beforeend', SERIES_CUSTOM_BADGE_HTML);
+            } else if (!seriesHasOverrides(s) && customBadge) {
+              customBadge.remove();
             }
           }
 
@@ -5492,9 +5473,8 @@ async function monitorUrlInput() {
 
 function setAutoDlFilterMode(mode) {
   autoDlFilterMode = mode || 'all';
-  document.querySelectorAll('.autodl-filter-chips .catalog-filter-chip').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.filter === autoDlFilterMode);
-  });
+  const sel = document.getElementById('autodl-filter-select');
+  if (sel && sel.value !== autoDlFilterMode) sel.value = autoDlFilterMode;
   renderAutoDlTab();
 }
 
@@ -5765,7 +5745,7 @@ async function submitAutoDlSearch() {
 
 document.addEventListener('click', (e) => {
   if (!document.contains(e.target)) return;
-  if (!e.target.closest('#autodl-search-wrapper') && !e.target.closest('#btn-toggle-autodl-search')) {
+  if (!e.target.closest('#autodl-search-wrapper') && !e.target.closest('#btn-toggle-add-anime')) {
     closeAutoDlSearchDropdown();
   }
 });
@@ -5839,8 +5819,11 @@ function renderAutoDlTab() {
 
   if (!gridEl) return;
 
-  // Protect active user interaction with select dropdowns
-  if (document.activeElement && (document.activeElement.tagName === 'SELECT' || document.activeElement.classList.contains('autodl-card-mode-select'))) {
+  // Protect active user interaction with the per-card mode selects. The
+  // toolbar selects (filter, interval) live outside the grid and must NOT
+  // block a re-render, or choosing a filter would never apply while the
+  // select keeps focus.
+  if (document.activeElement && document.activeElement.classList.contains('autodl-card-mode-select')) {
     return;
   }
 
@@ -5911,6 +5894,7 @@ function renderAutoDlTab() {
             <div class="autodl-card-header-line">
               <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="autodl-card-title" title="${escapeHtml(title)}">${escapeHtml(title)}</a>
               ${isPaused ? '<span class="res-badge res-badge-paused" style="font-size:0.58rem;padding:1px 5px;flex-shrink:0;">PAUSED</span>' : ''}
+              ${seriesHasOverrides(s) ? SERIES_CUSTOM_BADGE_HTML : ''}
             </div>
             <div class="autodl-card-meta">
               <span${lastEp ? ` title="${lastEp}"` : ''}>${lastCheck} • ${dlCount}/${knownCount} eps${lastEp ? ` • ${lastEp}` : ''}</span>

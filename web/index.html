@@ -759,12 +759,12 @@
         <div class="card" id="autodl-card">
           <!-- Header row -->
           <div class="card-label-row catalog-header-row autodl-header-row">
-            <div class="autodl-header-status" onclick="toggleWatcherMaster()" title="Click to pause or resume auto-downloader" style="cursor: pointer;">
+            <button type="button" class="autodl-header-status" onclick="toggleWatcherMaster()" title="Pause or resume auto-downloader">
               <span class="watcher-pulse-dot" id="autodl-page-status-dot"></span>
               <span id="autodl-page-status-text" class="autodl-status-title">Active</span>
               <span class="autodl-sep">•</span>
               <span id="autodl-page-count-text">Monitoring 0 anime</span>
-            </div>
+            </button>
             <div class="autodl-top-actions">
               <button type="button" class="btn-s btn-pri btn-autodl-toggle-add" id="btn-toggle-add-anime" onclick="toggleAutoDlSearch()" title="Search Crunchyroll to add anime">
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>

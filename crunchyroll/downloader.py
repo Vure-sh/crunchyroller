@@ -1132,6 +1132,12 @@ def download_episode(
     ]
 
     if not versions:
+        # The base audio_locale is a real track even when the versions list
+        # is empty (limited metadata): the watcher counts it as available,
+        # so the downloader must not skip an episode it can actually serve.
+        base_locale = (getattr(info.episode_metadata, "audio_locale", "") or "").strip().lower()
+        if base_locale:
+            missing_audio = [l for l in missing_audio if l.lower() != base_locale]
         if not audio_fallback and missing_audio and not audio_all:
             missing_list = ", ".join(missing_audio)
             msg = f"Requested audio [{missing_list}] is unavailable for '{info.title}' and audio fallback is disabled."

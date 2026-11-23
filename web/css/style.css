@@ -4904,3 +4904,20 @@ textarea.multi-url-input::placeholder {
   align-items: center;
   gap: 8px;
 }
+
+
+/* auto-dl status pill as a native button (keyboard accessible) */
+button.autodl-header-status {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+button.autodl-header-status:focus-visible {
+  outline: 1px solid var(--accent, #e8e8e8);
+  outline-offset: 3px;
+  border-radius: 4px;
+}

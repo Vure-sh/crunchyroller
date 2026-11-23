@@ -77,6 +77,65 @@ class TestAudioFallback(unittest.TestCase):
             )
             self.assertTrue(output_file.endswith(".mkv"))
 
+    def _base_only_info(self):
+        # Limited/mocked metadata: only the base audio_locale, no versions
+        return EpisodeInfo(
+            title="Base Only - Ep 1",
+            episode_metadata=EpisodeMetadata(
+                series_title="Base Only",
+                season_number=1,
+                episode_number=1,
+                audio_locale="ja-JP",
+                availability_starts="",
+                versions=[],
+            ),
+        )
+
+    @patch("crunchyroll.downloader.get_episode")
+    @patch("crunchyroll.downloader.get_episode_download")
+    @patch("crunchyroll.downloader.download_subs", return_value="dummy.ass")
+    @patch("crunchyroll.downloader.merge_everything")
+    def test_base_only_locale_downloads_when_matching_request(self, mock_merge, mock_subs, mock_dl, mock_get_ep):
+        """Base-only audio locale (no versions): the watcher counts the base
+        locale as available, so the downloader must not skip it either."""
+        mock_ep = PlaybackStream(
+            manifest_url="https://example.com/manifest.mpd",
+            token="dummy_token",
+            subtitles={"en-US": Subtitle(language="en-US", url="https://example.com/sub.ass")},
+        )
+        mock_get_ep.return_value = mock_ep
+        mock_dl.return_value = mock_ep
+
+        with patch("os.makedirs"), \
+             patch("os.path.exists", return_value=True), \
+             patch("os.path.getsize", return_value=50 * 1024 * 1024):
+            output_file = download_episode(
+                client=self.mock_client,
+                base_content_id="base1",
+                info=self._base_only_info(),
+                audio_langs=["ja-JP"],
+                subs_langs=["en-US"],
+                video_quality="1080p",
+                audio_quality="192k",
+                audio_fallback=False,
+            )
+            self.assertTrue(output_file.endswith(".mkv"))
+
+    def test_base_only_locale_still_raises_for_missing_dub(self):
+        """Base-only ja-JP episode with fr-FR requested and no fallback must
+        still raise: the base locale does not cover the request."""
+        with self.assertRaises(AudioUnavailableError):
+            download_episode(
+                client=self.mock_client,
+                base_content_id="base1",
+                info=self._base_only_info(),
+                audio_langs=["fr-FR"],
+                subs_langs=["en-US"],
+                video_quality="1080p",
+                audio_quality="192k",
+                audio_fallback=False,
+            )
+
     def test_queue_handles_skipped_audio_unavailable(self):
         """When an episode raises AudioUnavailableError, the queue marks it as 'skipped' and continues."""
         q = DownloadQueue()
