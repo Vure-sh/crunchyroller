@@ -603,6 +603,12 @@ def _run_download(items, vq, aq, al, sl, force_download=False):
 
 
 
+def _origin_allowed(hostname: Optional[str]) -> bool:
+    """Localhost, plus hostnames listed in CRUNCHYROLLER_ALLOWED_ORIGINS (LAN IP / reverse-proxy domain)."""
+    extra = {h.strip().lower() for h in os.environ.get("CRUNCHYROLLER_ALLOWED_ORIGINS", "").split(",") if h.strip()}
+    return hostname in ("127.0.0.1", "localhost", "::1") or (hostname or "").lower() in extra
+
+
 # http request handler
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *_): pass
@@ -612,7 +618,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not origin:
             return None
         parsed = urlparse(origin)
-        if parsed.hostname in ("127.0.0.1", "localhost", "::1") or origin == "null":
+        if _origin_allowed(parsed.hostname) or origin == "null":
             return origin
         return None
 
@@ -620,11 +626,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         if origin:
             parsed = urlparse(origin)
-            return parsed.hostname in ("127.0.0.1", "localhost", "::1") or origin == "null"
+            return _origin_allowed(parsed.hostname) or origin == "null"
         referer = self.headers.get("Referer")
         if referer:
             parsed = urlparse(referer)
-            return parsed.hostname in ("127.0.0.1", "localhost", "::1")
+            return _origin_allowed(parsed.hostname)
         return True
 
     def _json(self, data, status=200):
@@ -1848,7 +1854,7 @@ def start_gui(port=8000, use_browser=False):
     orig_port = port
     for p in range(port, port + 50):
         try:
-            srv = http.server.ThreadingHTTPServer(("127.0.0.1", p), Handler)
+            srv = http.server.ThreadingHTTPServer((os.environ.get("CRUNCHYROLLER_HOST") or "127.0.0.1", p), Handler)
             port = p
             break
         except OSError:

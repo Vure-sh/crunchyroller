@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 logger = logging.getLogger("crunchyroll.watcher")
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MONITORED_FILE = os.path.join(_PROJECT_ROOT, "monitored_series.json")
+MONITORED_FILE = os.path.join(os.environ.get("CRUNCHYROLLER_DATA_DIR") or _PROJECT_ROOT, "monitored_series.json")
 WATCHER_LOCK = threading.RLock()
 
 DEFAULT_WATCHER_SETTINGS = {

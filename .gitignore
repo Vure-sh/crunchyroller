@@ -53,3 +53,7 @@ benchmarks/
 # Internal Agent & Review Artifacts
 .agents/
 *REVIEW*.md
+
+# Docker volumes
+/data/
+/downloads/

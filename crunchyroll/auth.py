@@ -9,7 +9,9 @@ import threading
 import shutil
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CONFIG_FILE = os.path.join(_PROJECT_ROOT, "config.json")
+# Writable state (config, queue, watcher) lives here; override for Docker volumes.
+DATA_DIR = os.environ.get("CRUNCHYROLLER_DATA_DIR") or _PROJECT_ROOT
+CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
 CONFIG_LOCK = threading.RLock()
 
 DEFAULT_CONFIG: Dict[str, Any] = {
