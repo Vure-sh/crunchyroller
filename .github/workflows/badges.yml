@@ -1,0 +1,49 @@
+name: Update badges
+
+on:
+  schedule:
+    - cron: "17 3 * * *"   # daily, 03:17 UTC
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: badges
+  cancel-in-progress: true
+
+jobs:
+  badges:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch numbers
+        id: stats
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          repo="${{ github.repository }}"
+          tag=$(gh api "repos/$repo/releases/latest" --jq '.tag_name')
+          downloads=$(gh api --paginate "repos/$repo/releases" --jq '.[].assets[].download_count' | awk '{s+=$1} END {print s+0}')
+          stars=$(gh api "repos/$repo" --jq '.stargazers_count')
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "downloads=$downloads" >> "$GITHUB_OUTPUT"
+          echo "stars=$stars" >> "$GITHUB_OUTPUT"
+
+      - name: Regenerate badges
+        run: python3 tools/gen_badges.py "${{ steps.stats.outputs.tag }}" "${{ steps.stats.outputs.downloads }}" "${{ steps.stats.outputs.stars }}"
+
+      - name: Commit if changed
+        run: |
+          if git diff --quiet -- readme-assets; then
+            echo "No badge changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add readme-assets/badge-*.svg
+          git commit -m "chore(badges): update badges [skip ci]"
+          git push
